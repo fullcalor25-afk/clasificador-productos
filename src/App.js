@@ -260,7 +260,7 @@ export default function ProductClassifier() {
         allResults.push(...results);
         setAiProcessed(allResults.length);
       } else {
-        setAiError("Error al conectar con la IA. Verificá que ANTHROPIC_API_KEY esté configurada en Netlify.");
+        setAiError("Error al conectar con la IA. Verificá que GEMINI_API_KEY esté configurada en Netlify.");
         break;
       }
     }
