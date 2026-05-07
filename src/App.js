@@ -243,29 +243,59 @@ export default function ProductClassifier() {
     if (data.length > 0) setProducts(data);
   };
 
+  // ═══════════════════════════════════════════════════════════════
+// REEMPLAZÁ la función runAI en src/App.js con este código:
+// Buscá "const runAI = async" y reemplazá toda la función
+// hasta el cierre "};' que le corresponde
+// ═══════════════════════════════════════════════════════════════
+
   const runAI = async () => {
     setAiLoading(true);
     setAiError(null);
     setAiProcessed(0);
 
-    // Process in batches of 30
     const allResults = [];
-    const batchSize = 30;
+    const batchSize = 50;
     const totalBatches = Math.ceil(products.length / batchSize);
+    let errors = 0;
 
-    for (let i = 0; i < Math.min(totalBatches, 10); i++) { // Max 10 batches (300 products)
+    for (let i = 0; i < totalBatches; i++) {
       const batch = products.slice(i * batchSize, (i + 1) * batchSize);
-      const results = await classifyWithAI(batch);
-      if (results) {
-        allResults.push(...results);
-        setAiProcessed(allResults.length);
-      } else {
-        setAiError("Error al conectar con la IA. Verificá que GEMINI_API_KEY esté configurada en Netlify.");
-        break;
+
+      // Esperar 2 segundos entre lotes para no saturar Gemini
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      try {
+        const results = await classifyWithAI(batch);
+        if (results) {
+          allResults.push(...results);
+          setAiProcessed(allResults.length);
+        } else {
+          errors++;
+          // Si falla 3 veces seguidas, parar
+          if (errors >= 3) {
+            setAiError(`Se procesaron ${allResults.length} de ${products.length} productos. Algunos lotes fallaron por límite de Gemini. Podés intentar de nuevo más tarde para los restantes.`);
+            break;
+          }
+          // Esperar más si hay error (probablemente rate limit)
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      } catch (err) {
+        errors++;
+        if (errors >= 3) {
+          setAiError(`Se procesaron ${allResults.length} de ${products.length} productos. Error: ${err.message}`);
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
 
     if (allResults.length > 0) setAiResults(allResults);
+    if (!errors || errors < 3) {
+      setAiError(null);
+    }
     setAiLoading(false);
   };
 
