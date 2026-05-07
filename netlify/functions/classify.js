@@ -1,3 +1,5 @@
+const fetch = require("node-fetch");
+
 // netlify/functions/classify.js
 // Uses Google Gemini API (FREE - 1,500 requests/day)
 // Get your free key at: https://aistudio.google.com/apikey
