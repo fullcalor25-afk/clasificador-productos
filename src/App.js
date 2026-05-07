@@ -101,13 +101,14 @@ function classifyProduct(product) {
 }
 
 // ─── AI Classification via Netlify Function ──────────────────────────────────
+// CORREGIDO: ahora manda TODOS los productos del lote, no solo los primeros 30
 
 async function classifyWithAI(products) {
   try {
     const res = await fetch("/.netlify/functions/classify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ products: products.slice(0, 30) }),
+      body: JSON.stringify({ products }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -141,6 +142,12 @@ function parseTabular(text) {
     headers.forEach((h, i) => { obj[h] = (values[i] || "").trim().replace(/^"|"$/g, ""); });
     return obj;
   });
+}
+
+// ─── Helper: esperar N milisegundos ──────────────────────────────────────────
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
@@ -187,6 +194,7 @@ export default function ProductClassifier() {
   const [editingId, setEditingId] = useState(null);
   const [page, setPage] = useState(0);
   const [aiProcessed, setAiProcessed] = useState(0);
+  const [aiStatus, setAiStatus] = useState("");
   const fileInputRef = useRef(null);
 
   // ─── Process products ────────────────────────────────────────────────────
@@ -243,59 +251,89 @@ export default function ProductClassifier() {
     if (data.length > 0) setProducts(data);
   };
 
-  // ═══════════════════════════════════════════════════════════════
-// REEMPLAZÁ la función runAI en src/App.js con este código:
-// Buscá "const runAI = async" y reemplazá toda la función
-// hasta el cierre "};' que le corresponde
-// ═══════════════════════════════════════════════════════════════
+  // ─── AI Classification with retry logic and proper delays ────────────────
 
   const runAI = async () => {
     setAiLoading(true);
     setAiError(null);
     setAiProcessed(0);
+    setAiStatus("Iniciando análisis con IA...");
 
     const allResults = [];
     const batchSize = 50;
     const totalBatches = Math.ceil(products.length / batchSize);
-    let errors = 0;
+    let consecutiveErrors = 0;
 
     for (let i = 0; i < totalBatches; i++) {
       const batch = products.slice(i * batchSize, (i + 1) * batchSize);
+      const batchNum = i + 1;
 
-      // Esperar 2 segundos entre lotes para no saturar Gemini
+      setAiStatus(`Procesando lote ${batchNum} de ${totalBatches}...`);
+
+      // Esperar 4 segundos entre lotes para respetar rate limit de Gemini
       if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await wait(4000);
       }
 
       try {
         const results = await classifyWithAI(batch);
+
         if (results) {
           allResults.push(...results);
           setAiProcessed(allResults.length);
+          consecutiveErrors = 0; // Reset en éxito
+          setAiStatus(`✓ Lote ${batchNum}/${totalBatches} completado (${allResults.length} productos)`);
         } else {
-          errors++;
-          // Si falla 3 veces seguidas, parar
-          if (errors >= 3) {
-            setAiError(`Se procesaron ${allResults.length} de ${products.length} productos. Algunos lotes fallaron por límite de Gemini. Podés intentar de nuevo más tarde para los restantes.`);
+          consecutiveErrors++;
+          setAiStatus(`⚠ Lote ${batchNum} falló (intento ${consecutiveErrors}/5). Esperando...`);
+
+          if (consecutiveErrors >= 5) {
+            setAiError(
+              `Se procesaron ${allResults.length} de ${products.length} productos. ` +
+              `Gemini llegó al límite de requests. Los ${allResults.length} ya procesados se aplicaron correctamente. ` +
+              `Podés hacer click en "Re-analizar" más tarde para procesar el resto.`
+            );
             break;
           }
-          // Esperar más si hay error (probablemente rate limit)
-          await new Promise(resolve => setTimeout(resolve, 5000));
+
+          // Esperar progresivamente más: 10s, 20s, 30s, 40s...
+          const waitTime = consecutiveErrors * 10000;
+          setAiStatus(`⏳ Esperando ${waitTime / 1000}s antes de reintentar...`);
+          await wait(waitTime);
+
+          // Reintentar el mismo lote
+          i--;
+          continue;
         }
       } catch (err) {
-        errors++;
-        if (errors >= 3) {
-          setAiError(`Se procesaron ${allResults.length} de ${products.length} productos. Error: ${err.message}`);
+        consecutiveErrors++;
+        setAiStatus(`⚠ Error en lote ${batchNum}: ${err.message}. Esperando...`);
+
+        if (consecutiveErrors >= 5) {
+          setAiError(
+            `Se procesaron ${allResults.length} de ${products.length} productos. ` +
+            `Error: ${err.message}. Los ya procesados se aplicaron correctamente.`
+          );
           break;
         }
-        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        const waitTime = consecutiveErrors * 10000;
+        await wait(waitTime);
+        i--;
+        continue;
       }
     }
 
-    if (allResults.length > 0) setAiResults(allResults);
-    if (!errors || errors < 3) {
-      setAiError(null);
+    if (allResults.length > 0) {
+      setAiResults(allResults);
+      if (!consecutiveErrors || consecutiveErrors < 5) {
+        setAiError(null);
+        setAiStatus(`✅ Completado: ${allResults.length} productos clasificados con IA`);
+      }
+    } else {
+      setAiError("No se pudo conectar con Gemini. Verificá que GEMINI_API_KEY esté configurada en Netlify.");
     }
+
     setAiLoading(false);
   };
 
@@ -333,7 +371,7 @@ export default function ProductClassifier() {
   const resetApp = () => {
     setProducts([]); setClassified([]); setFilter("ALL"); setSearchTerm("");
     setView("upload"); setAiResults(null); setAiError(null); setPasteData("");
-    setPage(0); setStats({});
+    setPage(0); setStats({}); setAiStatus("");
   };
 
   // ─── Filtering & sorting ─────────────────────────────────────────────────
@@ -522,11 +560,26 @@ export default function ProductClassifier() {
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>🤖 Mejorar con Inteligencia Artificial</div>
                 <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5 }}>
-                  Usá Claude IA para analizar productos ambiguos y mejorar la precisión.
-                  {aiResults && <span style={{ color: C.success, marginLeft: 8 }}>✓ IA aplicada ({aiResults.length} productos)</span>}
-                  {aiLoading && <span style={{ color: C.accent, marginLeft: 8 }}>Procesando... {aiProcessed} analizados</span>}
+                  Usá Gemini IA para analizar productos ambiguos y mejorar la precisión.
+                  {aiResults && !aiLoading && <span style={{ color: C.success, marginLeft: 8 }}>✓ IA aplicada ({aiResults.length} productos)</span>}
                 </div>
-                {aiError && <div style={{ fontSize: 12, color: C.danger, marginTop: 6 }}>{aiError}</div>}
+                {aiLoading && (
+                  <div style={{ fontSize: 12, color: C.accent, marginTop: 6 }}>
+                    ⏳ {aiStatus} — {aiProcessed} de {products.length} analizados
+                    <div style={{
+                      marginTop: 6, height: 6, background: C.card, borderRadius: 3, overflow: "hidden",
+                    }}>
+                      <div style={{
+                        width: `${(aiProcessed / products.length) * 100}%`,
+                        height: "100%",
+                        background: `linear-gradient(90deg, ${C.accent}, ${C.success})`,
+                        borderRadius: 3,
+                        transition: "width 0.5s ease",
+                      }} />
+                    </div>
+                  </div>
+                )}
+                {aiError && <div style={{ fontSize: 12, color: C.danger, marginTop: 6 }}>⚠ {aiError}</div>}
               </div>
               <button onClick={runAI} disabled={aiLoading} style={{
                 padding: "10px 22px", borderRadius: 10, border: "none",
