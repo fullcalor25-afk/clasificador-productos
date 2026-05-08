@@ -3,35 +3,35 @@ import { useState, useEffect, useRef } from "react";
 // ─── Classification Engine (local, instant, no API needed) ───────────────────
 
 const REPUESTO_KEYWORDS = [
-  "repuesto","rep.","diafragma","electrodo","membrana","junta","oring",
-  "o-ring","empaquetadura","válvula","valvula","resistencia","termocupla",
-  "termopar","piloto","bujía","bujia","bobina","presostato","sensor",
-  "sonda","plaqueta","placa","display","perilla","manija","bisagra",
-  "resorte","arandela","tornillo","tuerca","bulón","bulon","retén",
-  "reten","rodamiento","ruleman","correa","cadena repuesto","carburador",
-  "cigüeñal","pistón","piston","biela","engranaje","piñón","pinon",
-  "escobilla","carbón","carbon","capacitor","condensador","relay","relé",
-  "rele","fusible","interruptor repuesto","micro","microswitch",
-  "ficha electro","conector para","inyector","quemador rep",
-  "unidad magnética","unidad magnetica","chicote","filtro deshidratador",
-  "vaina","encendido para","conjunto quemador","divisor","espada orgon",
+  "repuesto", "rep.", "diafragma", "electrodo", "membrana", "junta", "oring",
+  "o-ring", "empaquetadura", "válvula", "valvula", "resistencia", "termocupla",
+  "termopar", "piloto", "bujía", "bujia", "bobina", "presostato", "sensor",
+  "sonda", "plaqueta", "placa", "display", "perilla", "manija", "bisagra",
+  "resorte", "arandela", "tornillo", "tuerca", "bulón", "bulon", "retén",
+  "reten", "rodamiento", "ruleman", "correa", "cadena repuesto", "carburador",
+  "cigüeñal", "pistón", "piston", "biela", "engranaje", "piñón", "pinon",
+  "escobilla", "carbón", "carbon", "capacitor", "condensador", "relay", "relé",
+  "rele", "fusible", "interruptor repuesto", "micro", "microswitch",
+  "ficha electro", "conector para", "inyector", "quemador rep",
+  "unidad magnética", "unidad magnetica", "chicote", "filtro deshidratador",
+  "vaina", "encendido para", "conjunto quemador", "divisor", "espada orgon",
 ];
 
 const ACCESORIO_KEYWORDS = [
-  "acc.","accesorio","adaptador","cupla","racor","reducción","reduccion",
-  "codo","tee","curva","niple","brida","abrazadera","grampa",
-  "conector universal","detentor","desfangador",
+  "acc.", "accesorio", "adaptador", "cupla", "racor", "reducción", "reduccion",
+  "codo", "tee", "curva", "niple", "brida", "abrazadera", "grampa",
+  "conector universal", "detentor", "desfangador",
 ];
 
 const PRODUCTO_COMPLETO_KEYWORDS = [
-  "equipo","caldera","salamandra","estufa","radiador elemento",
-  "bomba","presurizador","electrobomba","compresor",
-  "extractor","ventilador","aire acondicionado","split",
-  "cortacerco","motosierra","desmalezadora","cortacesped",
-  "escalera","taladro","amoladora","soldadora",
-  "filtro de agua","purificador","ablandador",
-  "termotanque","calefón","calefon",
-  "cortina","pileta","tanque",
+  "equipo", "caldera", "salamandra", "estufa", "radiador elemento",
+  "bomba", "presurizador", "electrobomba", "compresor",
+  "extractor", "ventilador", "aire acondicionado", "split",
+  "cortacerco", "motosierra", "desmalezadora", "cortacesped",
+  "escalera", "taladro", "amoladora", "soldadora",
+  "filtro de agua", "purificador", "ablandador",
+  "termotanque", "calefón", "calefon",
+  "cortina", "pileta", "tanque",
 ];
 
 const RUBRO_REPUESTO_PATTERNS = [/^rep\./i, /repuesto/i, /^acc\./i];
@@ -121,7 +121,7 @@ async function classifyBatchWithAI(products) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function wait(ms) {
-  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
 }
 
 function parseTabular(text) {
@@ -376,9 +376,15 @@ export default function ProductClassifier() {
     setEditingId(null);
   };
 
-  const exportCSV = () => {
-    const headers = ["CODIGO","PRODUCTO","RUBRO","SUB RUBRO","PROVEEDOR","CLASIFICACION","CONFIANZA","RAZONES"];
-    const rows = filteredProducts.map(p => [
+  const exportCSV = (filterType = "ALL") => {
+    const toExport = filterType === "ALL"
+      ? classified
+      : classified.filter(p => (p._manualClass || p._class.classification) === filterType);
+
+    if (toExport.length === 0) return alert("No hay productos para exportar en esta categoría.");
+
+    const headers = ["CODIGO", "PRODUCTO", "RUBRO", "SUB RUBRO", "PROVEEDOR", "CLASIFICACION", "CONFIANZA", "RAZONES"];
+    const rows = toExport.map(p => [
       p.CODIGO || "",
       '"' + (p.PRODUCTO || "").replace(/"/g, '""') + '"',
       p.RUBRO || "",
@@ -405,16 +411,22 @@ export default function ProductClassifier() {
 
   // ─── Filtering & sorting ─────────────────────────────────────────────────
 
+  const lowConfidenceCount = classified.filter(p => !p._manualClass && p._class.confidence < 60).length;
+
   const filteredProducts = classified
     .filter(p => {
-      const cls = p._manualClass || p._class.classification;
-      if (filter !== "ALL" && cls !== filter) return false;
+      if (filter === "REVIEW") {
+        if (p._manualClass || p._class.confidence >= 60) return false;
+      } else {
+        const cls = p._manualClass || p._class.classification;
+        if (filter !== "ALL" && cls !== filter) return false;
+      }
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         return (p.PRODUCTO || "").toLowerCase().includes(s) ||
-               (p.CODIGO || "").toLowerCase().includes(s) ||
-               (p.RUBRO || "").toLowerCase().includes(s) ||
-               (p.PROVEEDOR || "").toLowerCase().includes(s);
+          (p.CODIGO || "").toLowerCase().includes(s) ||
+          (p.RUBRO || "").toLowerCase().includes(s) ||
+          (p.PROVEEDOR || "").toLowerCase().includes(s);
       }
       return true;
     })
@@ -481,7 +493,23 @@ export default function ProductClassifier() {
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <Btn active={view === "dashboard"} onClick={() => setView("dashboard")}>Dashboard</Btn>
             <Btn active={view === "table"} onClick={() => setView("table")}>Tabla</Btn>
-            <Btn onClick={exportCSV} color={C.success} active>📥 Exportar CSV</Btn>
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) exportCSV(e.target.value); }}
+              style={{
+                padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                border: "1px solid " + C.success, background: C.success + "18", color: C.success,
+                cursor: "pointer", outline: "none"
+              }}
+            >
+              <option value="" disabled>📥 Exportar...</option>
+              <option value="ALL" style={{ background: C.bg, color: C.text }}>Exportar Todos</option>
+              <option value="REPUESTO" style={{ background: C.bg, color: C.text }}>Solo Repuestos</option>
+              <option value="ACCESORIO" style={{ background: C.bg, color: C.text }}>Solo Accesorios</option>
+              <option value="PRODUCTO_COMPLETO" style={{ background: C.bg, color: C.text }}>Solo Productos Completos</option>
+              <option value="SERVICIO" style={{ background: C.bg, color: C.text }}>Solo Servicios</option>
+              <option value="OTRO" style={{ background: C.bg, color: C.text }}>Solo Otros</option>
+            </select>
             <Btn onClick={resetApp} color={C.danger} active>Nueva carga</Btn>
           </div>
         )}
@@ -544,12 +572,16 @@ export default function ProductClassifier() {
           <div className="fade-in">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 28 }}>
               {[
-                { label: "Total", value: classified.length, color: C.accent, icon: "📊" },
-                { label: "Repuestos", value: stats.REPUESTO || 0, color: C.repuesto, icon: "⚙️", pct: true },
-                { label: "Accesorios", value: stats.ACCESORIO || 0, color: C.accesorio, icon: "🔩", pct: true },
-                { label: "Completos", value: stats.PRODUCTO_COMPLETO || 0, color: C.completo, icon: "📦", pct: true },
+                { label: "Total", value: classified.length, color: C.accent, icon: "📊", filter: "ALL" },
+                { label: "Repuestos", value: stats.REPUESTO || 0, color: C.repuesto, icon: "⚙️", pct: true, filter: "REPUESTO" },
+                { label: "Accesorios", value: stats.ACCESORIO || 0, color: C.accesorio, icon: "🔩", pct: true, filter: "ACCESORIO" },
+                { label: "Completos", value: stats.PRODUCTO_COMPLETO || 0, color: C.completo, icon: "📦", pct: true, filter: "PRODUCTO_COMPLETO" },
               ].map(s => (
-                <div key={s.label} style={{ background: C.surface, borderRadius: 14, border: "1px solid " + C.border, padding: "18px 20px", position: "relative", overflow: "hidden" }}>
+                <div key={s.label}
+                  onClick={() => { setFilter(s.filter); setView("table"); setPage(0); }}
+                  style={{ cursor: "pointer", background: C.surface, borderRadius: 14, border: "1px solid " + C.border, padding: "18px 20px", position: "relative", overflow: "hidden", transition: "transform 0.2s" }}
+                  onMouseEnter={e => e.currentTarget.style.transform = "translateY(-3px)"}
+                  onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}>
                   <div style={{ position: "absolute", top: -20, right: -10, fontSize: 50, opacity: 0.06 }}>{s.icon}</div>
                   <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 500, marginBottom: 6 }}>{s.label}</div>
                   <div style={{ fontSize: 28, fontWeight: 700, color: s.color }}>{s.value.toLocaleString()}</div>
@@ -557,6 +589,32 @@ export default function ProductClassifier() {
                 </div>
               ))}
             </div>
+
+            {lowConfidenceCount > 0 && (
+              <div
+                onClick={() => { setFilter("REVIEW"); setView("table"); setPage(0); }}
+                style={{
+                  background: C.danger + "15", border: "1px solid " + C.danger,
+                  borderRadius: 14, padding: "16px 20px", marginBottom: 28,
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  cursor: "pointer", transition: "transform 0.2s"
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = "translateY(-3px)"}
+                onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ fontSize: 24 }}>⚠️</div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: C.danger }}>Revisión Sugerida</div>
+                    <div style={{ fontSize: 13, color: C.text }}>Hay {lowConfidenceCount} productos con baja confianza ({'< 60%'}).</div>
+                  </div>
+                </div>
+                <button style={{
+                  padding: "8px 16px", borderRadius: 8, border: "none", background: C.danger, color: "#fff",
+                  fontSize: 13, fontWeight: 600, cursor: "pointer"
+                }}>Revisar Ahora</button>
+              </div>
+            )}
 
             {/* AI Section */}
             <div style={{
@@ -615,12 +673,12 @@ export default function ProductClassifier() {
             <div style={{ marginBottom: 28 }}>
               <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>Distribución</h3>
               <div style={{ display: "flex", height: 10, borderRadius: 6, overflow: "hidden", background: C.card, marginBottom: 12 }}>
-                {Object.entries(stats).filter(([,v]) => v > 0).map(([key, val]) => (
+                {Object.entries(stats).filter(([, v]) => v > 0).map(([key, val]) => (
                   <div key={key} style={{ width: (val / classified.length * 100) + "%", background: (CLS[key] || CLS.OTRO).color, transition: "width .5s" }} />
                 ))}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-                {Object.entries(stats).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]).map(([key, val]) => (
+                {Object.entries(stats).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([key, val]) => (
                   <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                     <div style={{ width: 10, height: 10, borderRadius: 3, background: (CLS[key] || CLS.OTRO).color }} />
                     <span style={{ color: C.textMuted }}>{(CLS[key] || CLS.OTRO).label}: <span style={{ color: C.text, fontWeight: 600 }}>{val}</span></span>
@@ -637,7 +695,7 @@ export default function ProductClassifier() {
                 classified.filter(p => (p._manualClass || p._class.classification) === "REPUESTO").forEach(p => {
                   const r = p.RUBRO || "Sin Rubro"; m[r] = (m[r] || 0) + 1;
                 });
-                const sorted = Object.entries(m).sort((a,b) => b[1]-a[1]).slice(0, 8);
+                const sorted = Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 8);
                 const max = sorted[0]?.[1] || 1;
                 return sorted.length === 0
                   ? <div style={{ color: C.textDim, fontSize: 13 }}>Sin repuestos detectados</div>
@@ -672,11 +730,17 @@ export default function ProductClassifier() {
                 onFocus={e => e.target.style.borderColor = C.accent}
                 onBlur={e => e.target.style.borderColor = C.border}
               />
-              {["ALL","REPUESTO","ACCESORIO","PRODUCTO_COMPLETO","SERVICIO","OTRO"].map(f => (
-                <Btn key={f} active={filter === f} color={(CLS[f] || {}).color} onClick={() => { setFilter(f); setPage(0); }}>
-                  {f === "ALL" ? "Todos (" + classified.length + ")" : ((CLS[f] || {}).icon || "") + " " + ((CLS[f] || {}).label || f) + " (" + (stats[f] || 0) + ")"}
-                </Btn>
-              ))}
+              {["ALL", "REVIEW", "REPUESTO", "ACCESORIO", "PRODUCTO_COMPLETO", "SERVICIO", "OTRO"].map(f => {
+                let label, icon, color, count;
+                if (f === "ALL") { label = "Todos"; count = classified.length; color = C.accent; }
+                else if (f === "REVIEW") { label = "Revisar"; icon = "⚠️"; count = lowConfidenceCount; color = C.danger; }
+                else { label = (CLS[f] || {}).label || f; icon = (CLS[f] || {}).icon; count = stats[f] || 0; color = (CLS[f] || {}).color; }
+                return (
+                  <Btn key={f} active={filter === f} color={color} onClick={() => { setFilter(f); setPage(0); }}>
+                    {(icon ? icon + " " : "") + label + " (" + count + ")"}
+                  </Btn>
+                );
+              })}
             </div>
 
             <div style={{ fontSize: 12, color: C.textDim, marginBottom: 12 }}>
@@ -687,8 +751,8 @@ export default function ProductClassifier() {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: C.surface }}>
-                    {[{k:"producto",l:"Producto"},{k:"rubro",l:"Rubro"},{k:"clasificacion",l:"Clasificación"},{k:"confidence",l:"Confianza"}].map(col => (
-                      <th key={col.k} onClick={() => { if (sortBy === col.k) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortBy(col.k); setSortDir("desc"); }}} style={{
+                    {[{ k: "producto", l: "Producto" }, { k: "rubro", l: "Rubro" }, { k: "clasificacion", l: "Clasificación" }, { k: "confidence", l: "Confianza" }].map(col => (
+                      <th key={col.k} onClick={() => { if (sortBy === col.k) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortBy(col.k); setSortDir("desc"); } }} style={{
                         padding: "12px 14px", textAlign: "left", fontWeight: 600,
                         color: sortBy === col.k ? C.accent : C.textMuted, cursor: "pointer",
                         borderBottom: "1px solid " + C.border, fontSize: 11,
