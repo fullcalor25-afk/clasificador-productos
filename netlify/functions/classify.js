@@ -1,13 +1,35 @@
 const fetch = require("node-fetch");
 
-// Fallback chain: if one model is rate-limited or overloaded, try the next
+// Modelos de Groq (Llama 3)
 var MODELS = [
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant"
 ];
 
-function buildPrompt(products) {
+const SYSTEM_PROMPT = `Eres un experto en clasificacion de productos industriales (calefaccion, plomeria, gas, herramientas, electricidad, jardineria, refrigeracion, etc).
+
+Tu unica tarea es analizar la lista de productos provista y clasificarlos.
+DEBES responder UNICAMENTE con un objeto JSON valido que contenga una propiedad "results", la cual debe ser un array de objetos.
+Cada objeto en el array "results" debe tener exactamente esta estructura:
+{
+  "codigo": "el codigo original del producto",
+  "clasificacion": "UNA DE LAS SIGUIENTES CATEGORIAS EXACTAS: REPUESTO, ACCESORIO, PRODUCTO_COMPLETO, SERVICIO, OTRO",
+  "confianza": 85,
+  "razon": "Explicacion breve de 1 linea de por que se eligio esa categoria"
+}
+
+Criterios de clasificacion estricta:
+- REPUESTO: pieza que reemplaza una parte dañada de un equipo mayor (diafragmas, electrodos, valvulas, plaquetas, correas, sensores, termocuplas, membranas, unidades magneticas, fichas, etc.)
+- ACCESORIO: pieza complementaria para instalaciones (cuplas, racores, tees, codos, conectores, adaptadores, niples, abrazaderas, desfangadores, filtros de linea, etc.)
+- PRODUCTO_COMPLETO: equipo principal autonomo que funciona por si solo (calderas, bombas, extractores, compresores, herramientas electricas, salamandras, equipos de aire, cortacercos, electrobombas, escaleras, etc.)
+- SERVICIO: mano de obra, instalacion o servicio tecnico
+- OTRO: no encaja claramente en ninguna categoria anterior (pilas, materiales genericos, cortinas, etc.)
+
+IMPORTANTE: 
+1. La clasificacion DEBE ser una de las opciones exactas en MAYUSCULAS.
+2. Tu respuesta debe ser solo el JSON.`;
+
+function buildUserPrompt(products) {
   var sample = [];
   for (var i = 0; i < Math.min(products.length, 50); i++) {
     var p = products[i];
@@ -18,41 +40,7 @@ function buildPrompt(products) {
       subRubro: p["SUB RUBRO"] || "",
     });
   }
-
-  return "Eres un experto en clasificacion de productos industriales (calefaccion, plomeria, gas, herramientas, electricidad, jardineria, refrigeracion, etc).\n\n" +
-    "Clasifica CADA producto como exactamente UNA de estas categorias:\n" +
-    "- REPUESTO: pieza que reemplaza una parte dañada de un equipo mayor (diafragmas, electrodos, valvulas, plaquetas, correas, sensores, termocuplas, membranas, unidades magneticas, fichas, etc.)\n" +
-    "- ACCESORIO: pieza complementaria para instalaciones (cuplas, racores, tees, codos, conectores, adaptadores, niples, abrazaderas, desfangadores, filtros de linea, etc.)\n" +
-    "- PRODUCTO_COMPLETO: equipo principal autonomo que funciona por si solo (calderas, bombas, extractores, compresores, herramientas electricas, salamandras, equipos de aire, cortacercos, electrobombas, escaleras, etc.)\n" +
-    "- SERVICIO: mano de obra, instalacion o servicio tecnico\n" +
-    "- OTRO: no encaja claramente en ninguna categoria anterior (pilas, materiales genericos, cortinas, etc.)\n\n" +
-    "IMPORTANTE: Responde SOLO con un array JSON valido. Sin markdown, sin backticks, sin texto adicional.\n" +
-    'Formato exacto:\n[{"codigo":"X","clasificacion":"REPUESTO","confianza":85,"razon":"explicacion breve"}]\n\n' +
-    "Productos a clasificar:\n" + JSON.stringify(sample, null, 2);
-}
-
-function extractText(data) {
-  var text = "";
-  try {
-    var parts = data.candidates[0].content.parts;
-    for (var i = 0; i < parts.length; i++) {
-      if (parts[i].text) text += parts[i].text;
-    }
-  } catch (e) { /* ignore */ }
-  return text;
-}
-
-function parseJSON(text) {
-  var clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
-  try {
-    return JSON.parse(clean);
-  } catch (e) {
-    var match = clean.match(/\[[\s\S]*\]/);
-    if (match) {
-      try { return JSON.parse(match[0]); } catch (e2) { return null; }
-    }
-    return null;
-  }
+  return "Productos a clasificar:\n" + JSON.stringify(sample, null, 2);
 }
 
 exports.handler = async function(event) {
@@ -69,9 +57,9 @@ exports.handler = async function(event) {
     return { statusCode: 405, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
-  var apiKey = process.env.GEMINI_API_KEY;
+  var apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
-    return { statusCode: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "GEMINI_API_KEY no configurada en Netlify." }) };
+    return { statusCode: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "GROQ_API_KEY no configurada en Netlify." }) };
   }
 
   var products;
@@ -85,23 +73,31 @@ exports.handler = async function(event) {
     return { statusCode: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "No se enviaron productos" }) };
   }
 
-  var prompt = buildPrompt(products);
+  var userPrompt = buildUserPrompt(products);
   var lastError = "Error desconocido";
 
   // Try each model
   for (var m = 0; m < MODELS.length; m++) {
     var model = MODELS[m];
-    console.log("Intentando modelo:", model);
+    console.log("Intentando modelo Groq:", model);
 
     try {
-      var url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey;
+      var url = "https://api.groq.com/openai/v1/chat/completions";
 
       var response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey
+        },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+          model: model,
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userPrompt }
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" }
         }),
       });
 
@@ -111,32 +107,32 @@ exports.handler = async function(event) {
         continue;
       }
 
-      if (response.status === 503) {
-        console.log("Modelo sobrecargado:", model);
+      if (response.status === 503 || response.status === 500) {
+        console.log("Modelo sobrecargado o error interno:", model);
         lastError = "Modelo " + model + " sobrecargado";
         continue;
       }
 
-      if (response.status === 400 || response.status === 403) {
-        var errTxt = await response.text();
-        // Check if it's an API key error vs a model-specific error
-        if (errTxt.indexOf("API_KEY_INVALID") !== -1 || errTxt.indexOf("API key not valid") !== -1) {
-          return { statusCode: 401, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "API Key invalida. Genera una nueva en aistudio.google.com/apikey" }) };
-        }
-        console.log("Error 400/403 en", model, ":", errTxt.substring(0, 200));
-        lastError = "Error en " + model;
-        continue;
+      if (response.status === 401) {
+        return { statusCode: 401, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "API Key de Groq invalida. Revisa tu GROQ_API_KEY." }) };
       }
 
       if (!response.ok) {
-        console.log("Error", response.status, "en", model);
+        var errTxt = await response.text();
+        console.log("Error", response.status, "en", model, ":", errTxt.substring(0, 200));
         lastError = "Error " + response.status + " en " + model;
         continue;
       }
 
       // Parse success response
       var data = await response.json();
-      var text = extractText(data);
+      var text = "";
+      try {
+        text = data.choices[0].message.content;
+      } catch (e) {
+        console.log("Estructura de respuesta inesperada:", e.message);
+        continue;
+      }
 
       if (!text) {
         console.log("Respuesta vacia de", model);
@@ -144,11 +140,20 @@ exports.handler = async function(event) {
         continue;
       }
 
-      var results = parseJSON(text);
+      var parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        console.log("No se pudo parsear respuesta JSON de", model);
+        lastError = "Respuesta no parseable de " + model;
+        continue;
+      }
+
+      var results = parsed.results;
 
       if (!results || !Array.isArray(results)) {
-        console.log("No se pudo parsear respuesta de", model);
-        lastError = "Respuesta no parseable de " + model;
+        console.log("La respuesta no contiene un array 'results'", model);
+        lastError = "Formato de resultados incorrecto en " + model;
         continue;
       }
 
@@ -170,6 +175,6 @@ exports.handler = async function(event) {
   return {
     statusCode: 503,
     headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-    body: JSON.stringify({ error: "Todos los modelos estan saturados. Espera unos minutos. Ultimo error: " + lastError }),
+    body: JSON.stringify({ error: "Todos los modelos de Groq fallaron. Espera unos minutos. Ultimo error: " + lastError }),
   };
 };
