@@ -354,6 +354,23 @@ export default function ProductClassifier() {
       const s = {};
       updated.forEach(r => { const cls = r._manualClass || r._class.classification; s[cls] = (s[cls] || 0) + 1; });
       setStats(s);
+
+      // Guardar corrección en la base de datos para que la IA aprenda (Fire and forget)
+      const product = updated.find(p => p._id === id);
+      if (product && product.CODIGO) {
+        fetch("/.netlify/functions/update-correction", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            codigo: product.CODIGO,
+            producto: product.PRODUCTO,
+            rubro: product.RUBRO,
+            subRubro: product["SUB RUBRO"],
+            clasificacion_manual: newClass
+          })
+        }).catch(e => console.log("Error guardando correccion", e));
+      }
+
       return updated;
     });
     setEditingId(null);

@@ -1,4 +1,5 @@
 const fetch = require("node-fetch");
+const { createClient } = require('@supabase/supabase-js');
 
 // Modelos de Groq (Llama 3)
 var MODELS = [
@@ -6,7 +7,18 @@ var MODELS = [
   "llama-3.1-8b-instant"
 ];
 
-const SYSTEM_PROMPT = `Eres un experto en clasificacion de productos industriales (calefaccion, plomeria, gas, herramientas, electricidad, jardineria, refrigeracion, etc).
+function getSystemPrompt(examples) {
+  let examplesText = "";
+  if (examples && examples.length > 0) {
+    examplesText = "\n\nIMPORTANTE - APRENDIZAJE DE EJEMPLOS PREVIOS DEL USUARIO:\n" +
+      "A continuacion se muestran ejemplos de como el usuario ha clasificado manualmente algunos productos en el pasado. " +
+      "DEBES prestar mucha atencion a la logica detras de estos ejemplos y aplicarla a los nuevos productos si son similares.\n\n" +
+      "--- EJEMPLOS ---\n" +
+      examples.map(e => `Producto: "${e.producto}" | Rubro: "${e.rubro}" | Clasificacion correcta: ${e.clasificacion_manual}`).join("\n") +
+      "\n----------------\n\n";
+  }
+
+  return `Eres un experto en clasificacion de productos industriales (calefaccion, plomeria, gas, herramientas, electricidad, jardineria, refrigeracion, etc).
 
 Tu unica tarea es analizar la lista de productos provista y clasificarlos.
 DEBES responder UNICAMENTE con un objeto JSON valido que contenga una propiedad "results", la cual debe ser un array de objetos.
@@ -24,10 +36,11 @@ Criterios de clasificacion estricta:
 - PRODUCTO_COMPLETO: equipo principal autonomo que funciona por si solo (calderas, bombas, extractores, compresores, herramientas electricas, salamandras, equipos de aire, cortacercos, electrobombas, escaleras, etc.)
 - SERVICIO: mano de obra, instalacion o servicio tecnico
 - OTRO: no encaja claramente en ninguna categoria anterior (pilas, materiales genericos, cortinas, etc.)
-
+${examplesText}
 IMPORTANTE: 
 1. La clasificacion DEBE ser una de las opciones exactas en MAYUSCULAS.
 2. Tu respuesta debe ser solo el JSON.`;
+}
 
 function buildUserPrompt(products) {
   var sample = [];
@@ -62,6 +75,13 @@ exports.handler = async function(event) {
     return { statusCode: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "GROQ_API_KEY no configurada en Netlify." }) };
   }
 
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+  let supabase = null;
+  if (supabaseUrl && supabaseKey) {
+    supabase = createClient(supabaseUrl, supabaseKey);
+  }
+
   var products;
   try {
     products = JSON.parse(event.body).products;
@@ -73,7 +93,28 @@ exports.handler = async function(event) {
     return { statusCode: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "No se enviaron productos" }) };
   }
 
+  // 1. Cargar ejemplos manuales recientes de Supabase para inyectarlos en el prompt
+  let recentCorrections = [];
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('clasificaciones')
+        .select('producto, rubro, clasificacion_manual')
+        .not('clasificacion_manual', 'is', null)
+        .order('updated_at', { ascending: false })
+        .limit(20);
+      
+      if (!error && data) {
+        recentCorrections = data;
+        console.log("Ejemplos cargados de Supabase:", recentCorrections.length);
+      }
+    } catch(e) {
+      console.log("Error consultando ejemplos de Supabase:", e.message);
+    }
+  }
+
   var userPrompt = buildUserPrompt(products);
+  var systemPrompt = getSystemPrompt(recentCorrections);
   var lastError = "Error desconocido";
 
   // Try each model
@@ -93,7 +134,7 @@ exports.handler = async function(event) {
         body: JSON.stringify({
           model: model,
           messages: [
-            { role: "system", content: SYSTEM_PROMPT },
+            { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
           ],
           temperature: 0.1,
@@ -158,6 +199,41 @@ exports.handler = async function(event) {
       }
 
       console.log("Exito con", model, "-", results.length, "productos clasificados");
+      
+      // 2. Guardar resultados de la IA en Supabase
+      if (supabase) {
+        try {
+          // Buscamos los productos originales para guardar la data completa
+          const upsertData = results.map(r => {
+            const originalProduct = products.find(p => (p.CODIGO || "") === r.codigo) || {};
+            // Evitamos upsert sin codigo
+            if (!r.codigo) return null;
+            return {
+              codigo: r.codigo,
+              producto: originalProduct.PRODUCTO || "",
+              rubro: originalProduct.RUBRO || "",
+              sub_rubro: originalProduct["SUB RUBRO"] || "",
+              clasificacion_ia: r.clasificacion,
+              updated_at: new Date().toISOString()
+            };
+          }).filter(item => item !== null);
+          
+          if (upsertData.length > 0) {
+            const { error: insertError } = await supabase
+              .from('clasificaciones')
+              .upsert(upsertData, { onConflict: 'codigo' });
+              
+            if (insertError) {
+              console.log("Advertencia: No se pudieron guardar todos los resultados en Supabase:", insertError.message);
+            } else {
+              console.log("Resultados guardados en Supabase correctamente");
+            }
+          }
+        } catch(e) {
+          console.log("Error general guardando en Supabase:", e.message);
+        }
+      }
+
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
