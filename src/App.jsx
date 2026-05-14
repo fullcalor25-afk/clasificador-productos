@@ -142,6 +142,13 @@ function parseTabular(text) {
   });
 }
 
+function fmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }) +
+    " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
+
 // ─── Theme ───────────────────────────────────────────────────────────────────
 
 const C = {
@@ -153,6 +160,7 @@ const C = {
   completo: "#10b981", completoGlow: "rgba(16,185,129,0.12)",
   servicio: "#6366f1", servicioGlow: "rgba(99,102,241,0.12)",
   otro: "#64748b", otroGlow: "rgba(100,116,139,0.12)",
+  aprendido: "#06b6d4", aprendidoGlow: "rgba(6,182,212,0.12)",
   danger: "#ef4444", success: "#10b981",
 };
 
@@ -189,19 +197,67 @@ export default function ProductClassifier() {
   const aiAbort = useRef(false);
   const fileInputRef = useRef(null);
 
+  // Correcciones aprendidas
+  const correctionsRef = useRef({});
+  const [corrections, setCorrections] = useState({});
+
+  // Historial
+  const [historyList, setHistoryList] = useState([]);
+  const [historyDetail, setHistoryDetail] = useState(null);
+  const [historyPage, setHistoryPage] = useState(0);
+  const [historyFilter, setHistoryFilter] = useState("ALL");
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Guardar análisis
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveModalName, setSaveModalName] = useState("");
+  const [savingAnalysis, setSavingAnalysis] = useState(false);
+
+  // Renombrar / Eliminar en historial
+  const [renameId, setRenameId] = useState(null);
+  const [renameText, setRenameText] = useState("");
+  const [deleteModalId, setDeleteModalId] = useState(null);
+
+  // ─── Cargar correcciones al montar ──────────────────────────────────────
+
+  useEffect(() => {
+    fetch("/.netlify/functions/corrections")
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          const map = {};
+          data.forEach(c => { if (c.codigo) map[c.codigo.toLowerCase()] = c.clasificacion_corregida; });
+          correctionsRef.current = map;
+          setCorrections(map);
+        }
+      })
+      .catch(e => console.log("Error cargando correcciones", e));
+  }, []);
+
   // ─── Process products when data or AI results change ─────────────────────
 
   useEffect(() => {
     if (products.length === 0) return;
     setLoading(true);
     setTimeout(() => {
+      const corrs = correctionsRef.current;
       const results = products.map((p, idx) => {
+        const corrKey = (p.CODIGO || "").toLowerCase();
+        if (corrKey && corrs[corrKey]) {
+          return {
+            ...p, _id: idx,
+            _class: { classification: corrs[corrKey], confidence: 100, reasons: ["Corrección aprendida"], score: 100 },
+            _source: "APRENDIDO",
+          };
+        }
         const result = classifyProduct(p);
-        return { ...p, _id: idx, _class: result };
+        return { ...p, _id: idx, _class: result, _source: "REGLAS" };
       });
 
       if (aiResults) {
         results.forEach(r => {
+          if (r._source === "APRENDIDO") return;
           const aiMatch = aiResults.find(a => a.codigo === r.CODIGO);
           if (aiMatch) {
             r._aiClass = { classification: aiMatch.clasificacion, confidence: aiMatch.confianza, reason: aiMatch.razon };
@@ -209,6 +265,7 @@ export default function ProductClassifier() {
               r._class.classification = aiMatch.clasificacion;
               r._class.confidence = aiMatch.confianza;
               r._class.reasons = [aiMatch.razon, ...r._class.reasons];
+              r._source = "IA";
             }
           }
         });
@@ -216,7 +273,13 @@ export default function ProductClassifier() {
 
       setClassified(results);
       const s = {};
-      results.forEach(r => { const cls = r._manualClass || r._class.classification; s[cls] = (s[cls] || 0) + 1; });
+      let aprendidos = 0;
+      results.forEach(r => {
+        const cls = r._manualClass || r._class.classification;
+        s[cls] = (s[cls] || 0) + 1;
+        if (r._source === "APRENDIDO") aprendidos++;
+      });
+      s._aprendidos = aprendidos;
       setStats(s);
       setLoading(false);
       setView("dashboard");
@@ -243,9 +306,7 @@ export default function ProductClassifier() {
     if (data.length > 0) setProducts(data);
   };
 
-  // ─── AI Classification - SEQUENTIAL, ONE AT A TIME ───────────────────────
-  // This is the key fix: we send ONE request, wait for the FULL response,
-  // then wait a delay, then send the next. No parallel requests.
+  // ─── AI Classification ───────────────────────────────────────────────────
 
   const runAI = async () => {
     setAiLoading(true);
@@ -258,69 +319,45 @@ export default function ProductClassifier() {
     const batchSize = 50;
     const totalBatches = Math.ceil(products.length / batchSize);
     let consecutiveErrors = 0;
-
-    // Base delay between successful requests (8 seconds)
     const BASE_DELAY = 8000;
 
     for (let i = 0; i < totalBatches; i++) {
-      // Check if user cancelled
-      if (aiAbort.current) {
-        setAiStatus("Cancelado por el usuario");
-        break;
-      }
+      if (aiAbort.current) { setAiStatus("Cancelado por el usuario"); break; }
 
       const batch = products.slice(i * batchSize, (i + 1) * batchSize);
       const batchNum = i + 1;
-
       setAiStatus("Lote " + batchNum + " de " + totalBatches + " — enviando...");
 
-      // Wait between requests (not before the first one)
       if (i > 0) {
         const delayTime = BASE_DELAY + (consecutiveErrors * 15000);
         setAiStatus("Lote " + batchNum + " de " + totalBatches + " — esperando " + Math.round(delayTime / 1000) + "s...");
         await wait(delayTime);
       }
 
-      // Send ONE request and wait for response
       const response = await classifyBatchWithAI(batch);
 
       if (response.error) {
         consecutiveErrors++;
-        console.log("Error en lote " + batchNum + ":", response.error);
-
-        // If it's a rate limit, wait longer and retry this batch
         if (response.status === 429 || response.status === 503) {
-          const retryWait = Math.min(consecutiveErrors * 20000, 120000); // Max 2 min wait
+          const retryWait = Math.min(consecutiveErrors * 20000, 120000);
           setAiStatus("⏳ Limite alcanzado. Esperando " + Math.round(retryWait / 1000) + "s antes de reintentar lote " + batchNum + "...");
           await wait(retryWait);
-          i--; // Retry this same batch
+          i--;
           continue;
         }
-
-        // If it's an API key error, stop immediately
         if (response.status === 401) {
           setAiError("API Key invalida. Genera una nueva en aistudio.google.com/apikey y actualizala en Netlify.");
           break;
         }
-
-        // Other error - retry up to 8 times total
         if (consecutiveErrors >= 8) {
-          setAiError(
-            "Se procesaron " + allResults.length + " de " + products.length + " productos. " +
-            "Error persistente: " + response.error + ". " +
-            "Podes hacer click en Re-analizar mas tarde para continuar."
-          );
+          setAiError("Se procesaron " + allResults.length + " de " + products.length + " productos. Error persistente: " + response.error + ". Podes hacer click en Re-analizar mas tarde para continuar.");
           break;
         }
-
-        // Wait and retry
         setAiStatus("⚠ Error en lote " + batchNum + ". Reintentando en 30s...");
         await wait(30000);
-        i--; // Retry
+        i--;
         continue;
-
       } else {
-        // SUCCESS
         consecutiveErrors = 0;
         if (response.results && Array.isArray(response.results)) {
           allResults.push(...response.results);
@@ -330,7 +367,6 @@ export default function ProductClassifier() {
       }
     }
 
-    // Apply results
     if (allResults.length > 0) {
       setAiResults(allResults);
       if (consecutiveErrors === 0 || allResults.length >= products.length * 0.8) {
@@ -344,37 +380,49 @@ export default function ProductClassifier() {
     setAiLoading(false);
   };
 
-  const stopAI = () => {
-    aiAbort.current = true;
-  };
+  const stopAI = () => { aiAbort.current = true; };
+
+  // ─── Manual correction ───────────────────────────────────────────────────
 
   const handleManualClassify = (id, newClass) => {
     setClassified(prev => {
-      const updated = prev.map(p => p._id === id ? { ...p, _manualClass: newClass } : p);
+      const updated = prev.map(p => p._id === id
+        ? { ...p, _manualClass: newClass, _source: "APRENDIDO" }
+        : p);
       const s = {};
-      updated.forEach(r => { const cls = r._manualClass || r._class.classification; s[cls] = (s[cls] || 0) + 1; });
+      let aprendidos = 0;
+      updated.forEach(r => {
+        const cls = r._manualClass || r._class.classification;
+        s[cls] = (s[cls] || 0) + 1;
+        if (r._source === "APRENDIDO") aprendidos++;
+      });
+      s._aprendidos = aprendidos;
       setStats(s);
-
-      // Guardar corrección en la base de datos para que la IA aprenda (Fire and forget)
-      const product = updated.find(p => p._id === id);
-      if (product && product.CODIGO) {
-        fetch("/.netlify/functions/update-correction", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            codigo: product.CODIGO,
-            producto: product.PRODUCTO,
-            rubro: product.RUBRO,
-            subRubro: product["SUB RUBRO"],
-            clasificacion_manual: newClass
-          })
-        }).catch(e => console.log("Error guardando correccion", e));
-      }
-
       return updated;
     });
     setEditingId(null);
+
+    const product = classified.find(p => p._id === id);
+    if (product && product.CODIGO) {
+      const key = product.CODIGO.toLowerCase();
+      correctionsRef.current[key] = newClass;
+      setCorrections(prev => ({ ...prev, [key]: newClass }));
+
+      fetch("/.netlify/functions/corrections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          codigo: product.CODIGO,
+          producto: product.PRODUCTO || "",
+          rubro: product.RUBRO || "",
+          sub_rubro: product["SUB RUBRO"] || "",
+          clasificacion_corregida: newClass,
+        }),
+      }).catch(e => console.log("Error guardando correccion", e));
+    }
   };
+
+  // ─── Export CSV (análisis actual) ────────────────────────────────────────
 
   const exportCSV = (filterType = "ALL") => {
     const toExport = filterType === "ALL"
@@ -383,7 +431,7 @@ export default function ProductClassifier() {
 
     if (toExport.length === 0) return alert("No hay productos para exportar en esta categoría.");
 
-    const headers = ["CODIGO", "PRODUCTO", "RUBRO", "SUB RUBRO", "PROVEEDOR", "CLASIFICACION", "CONFIANZA", "RAZONES"];
+    const headers = ["CODIGO", "PRODUCTO", "RUBRO", "SUB RUBRO", "PROVEEDOR", "CLASIFICACION", "CONFIANZA", "FUENTE", "RAZONES"];
     const rows = toExport.map(p => [
       p.CODIGO || "",
       '"' + (p.PRODUCTO || "").replace(/"/g, '""') + '"',
@@ -392,14 +440,117 @@ export default function ProductClassifier() {
       '"' + (p.PROVEEDOR || "").replace(/"/g, '""') + '"',
       p._manualClass || p._class.classification,
       (p._class.confidence || 0) + "%",
+      p._manualClass ? "APRENDIDO" : (p._source || "REGLAS"),
       '"' + (p._class.reasons || []).join("; ").replace(/"/g, '""') + '"',
     ]);
     const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = "productos_clasificados.csv"; a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // ─── Export CSV (detalle de historial) ──────────────────────────────────
+
+  const exportHistoryCSV = (productos) => {
+    if (!productos || productos.length === 0) return;
+    const headers = ["CODIGO", "PRODUCTO", "RUBRO", "SUB RUBRO", "CLASIFICACION", "FUENTE", "CONFIANZA"];
+    const rows = productos.map(p => [
+      p.codigo || "",
+      '"' + (p.producto || "").replace(/"/g, '""') + '"',
+      p.rubro || "",
+      p.sub_rubro || "",
+      p.clasificacion || "",
+      p.fuente || "",
+      (p.confianza || 0) + "%",
+    ]);
+    const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "analisis_exportado.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ─── Historial functions ─────────────────────────────────────────────────
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    setHistoryDetail(null);
+    setView("history");
+    try {
+      const res = await fetch("/.netlify/functions/history");
+      const data = await res.json();
+      setHistoryList(Array.isArray(data) ? data : []);
+    } catch (e) { console.log("Error cargando historial", e); }
+    setHistoryLoading(false);
+  };
+
+  const loadHistoryDetail = async (id) => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("/.netlify/functions/history?id=" + id);
+      const data = await res.json();
+      setHistoryDetail(data);
+      setHistoryPage(0);
+      setHistoryFilter("ALL");
+      setHistorySearch("");
+      setView("historyDetail");
+    } catch (e) { console.log("Error cargando análisis", e); }
+    setHistoryLoading(false);
+  };
+
+  const saveAnalysis = async () => {
+    setSavingAnalysis(true);
+    try {
+      const productos = classified.map(p => ({
+        codigo: p.CODIGO || "",
+        producto: p.PRODUCTO || "",
+        rubro: p.RUBRO || "",
+        sub_rubro: p["SUB RUBRO"] || "",
+        clasificacion: p._manualClass || p._class.classification,
+        fuente: p._manualClass ? "APRENDIDO" : (p._source || "REGLAS"),
+        confianza: p._class.confidence || 0,
+      }));
+      await fetch("/.netlify/functions/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: saveModalName, productos }),
+      });
+      setSaveModalOpen(false);
+      alert("Análisis guardado correctamente.");
+    } catch (e) {
+      console.log("Error guardando análisis", e);
+      alert("Error al guardar el análisis.");
+    }
+    setSavingAnalysis(false);
+  };
+
+  const deleteAnalysis = async (id) => {
+    try {
+      await fetch("/.netlify/functions/history?id=" + id, { method: "DELETE" });
+      setHistoryList(prev => prev.filter(a => a.id !== id));
+      if (historyDetail && historyDetail.id === id) {
+        setHistoryDetail(null);
+        setView("history");
+      }
+    } catch (e) { console.log("Error eliminando análisis", e); }
+    setDeleteModalId(null);
+  };
+
+  const renameAnalysis = async (id) => {
+    if (!renameText.trim()) return;
+    try {
+      await fetch("/.netlify/functions/history?id=" + id, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: renameText }),
+      });
+      setHistoryList(prev => prev.map(a => a.id === id ? { ...a, nombre: renameText } : a));
+      if (historyDetail && historyDetail.id === id) setHistoryDetail(prev => ({ ...prev, nombre: renameText }));
+    } catch (e) { console.log("Error renombrando análisis", e); }
+    setRenameId(null);
   };
 
   const resetApp = () => {
@@ -443,6 +594,23 @@ export default function ProductClassifier() {
   const pagedProducts = filteredProducts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filteredProducts.length / PAGE_SIZE);
 
+  // ─── History detail filtering ────────────────────────────────────────────
+
+  const historyProducts = historyDetail ? (historyDetail.products || []) : [];
+  const filteredHistoryProducts = historyProducts.filter(p => {
+    const cls = p.clasificacion || "OTRO";
+    if (historyFilter !== "ALL" && cls !== historyFilter) return false;
+    if (historySearch) {
+      const s = historySearch.toLowerCase();
+      return (p.producto || "").toLowerCase().includes(s) || (p.codigo || "").toLowerCase().includes(s);
+    }
+    return true;
+  });
+  const pagedHistoryProducts = filteredHistoryProducts.slice(historyPage * PAGE_SIZE, (historyPage + 1) * PAGE_SIZE);
+  const totalHistoryPages = Math.ceil(filteredHistoryProducts.length / PAGE_SIZE);
+
+  // ─── Components ──────────────────────────────────────────────────────────
+
   const Btn = ({ children, active, color, onClick }) => (
     <button onClick={onClick} style={{
       padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 500,
@@ -469,7 +637,7 @@ export default function ProductClassifier() {
         .fade-in{animation:fadeIn .4s ease forwards}
       `}</style>
 
-      {/* Header */}
+      {/* ── Header ── */}
       <div style={{
         background: "linear-gradient(135deg," + C.surface + "," + C.bg + ")",
         borderBottom: "1px solid " + C.border, padding: "16px 24px",
@@ -489,35 +657,52 @@ export default function ProductClassifier() {
             <div style={{ fontSize: 11, color: C.textDim }}>Sistema inteligente con IA</div>
           </div>
         </div>
-        {classified.length > 0 && (
-          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            <Btn active={view === "dashboard"} onClick={() => setView("dashboard")}>Dashboard</Btn>
-            <Btn active={view === "table"} onClick={() => setView("table")}>Tabla</Btn>
-            <select
-              value=""
-              onChange={(e) => { if (e.target.value) exportCSV(e.target.value); }}
-              style={{
-                padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                border: "1px solid " + C.success, background: C.success + "18", color: C.success,
-                cursor: "pointer", outline: "none"
-              }}
-            >
-              <option value="" disabled>📥 Exportar...</option>
-              <option value="ALL" style={{ background: C.bg, color: C.text }}>Exportar Todos</option>
-              <option value="REPUESTO" style={{ background: C.bg, color: C.text }}>Solo Repuestos</option>
-              <option value="ACCESORIO" style={{ background: C.bg, color: C.text }}>Solo Accesorios</option>
-              <option value="PRODUCTO_COMPLETO" style={{ background: C.bg, color: C.text }}>Solo Productos Completos</option>
-              <option value="SERVICIO" style={{ background: C.bg, color: C.text }}>Solo Servicios</option>
-              <option value="OTRO" style={{ background: C.bg, color: C.text }}>Solo Otros</option>
-            </select>
-            <Btn onClick={resetApp} color={C.danger} active>Nueva carga</Btn>
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <Btn active={view === "history" || view === "historyDetail"} onClick={loadHistory}>📋 Historial</Btn>
+          {classified.length > 0 && (
+            <>
+              <Btn active={view === "dashboard"} onClick={() => setView("dashboard")}>Dashboard</Btn>
+              <Btn active={view === "table"} onClick={() => setView("table")}>Tabla</Btn>
+              <button
+                onClick={() => {
+                  const today = new Date();
+                  const dd = String(today.getDate()).padStart(2, "0");
+                  const mm = String(today.getMonth() + 1).padStart(2, "0");
+                  const yyyy = today.getFullYear();
+                  setSaveModalName("Análisis " + dd + "/" + mm + "/" + yyyy);
+                  setSaveModalOpen(true);
+                }}
+                style={{
+                  padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                  border: "1px solid " + C.accent, background: C.accentGlow, color: C.accent,
+                  cursor: "pointer",
+                }}>💾 Guardar</button>
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) exportCSV(e.target.value); }}
+                style={{
+                  padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                  border: "1px solid " + C.success, background: C.success + "18", color: C.success,
+                  cursor: "pointer", outline: "none"
+                }}
+              >
+                <option value="" disabled>📥 Exportar...</option>
+                <option value="ALL" style={{ background: C.bg, color: C.text }}>Exportar Todos</option>
+                <option value="REPUESTO" style={{ background: C.bg, color: C.text }}>Solo Repuestos</option>
+                <option value="ACCESORIO" style={{ background: C.bg, color: C.text }}>Solo Accesorios</option>
+                <option value="PRODUCTO_COMPLETO" style={{ background: C.bg, color: C.text }}>Solo Productos Completos</option>
+                <option value="SERVICIO" style={{ background: C.bg, color: C.text }}>Solo Servicios</option>
+                <option value="OTRO" style={{ background: C.bg, color: C.text }}>Solo Otros</option>
+              </select>
+              <Btn onClick={resetApp} color={C.danger} active>Nueva carga</Btn>
+            </>
+          )}
+        </div>
       </div>
 
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px 20px" }}>
 
-        {/* Upload */}
+        {/* ── Upload ── */}
         {view === "upload" && (
           <div className="fade-in" style={{ maxWidth: 680, margin: "40px auto" }}>
             <div style={{ textAlign: "center", marginBottom: 36 }}>
@@ -526,6 +711,11 @@ export default function ProductClassifier() {
               <p style={{ color: C.textMuted, fontSize: 14, lineHeight: 1.6, maxWidth: 480, margin: "0 auto" }}>
                 Pegá los datos desde Google Sheets o subí un CSV. El sistema clasifica automáticamente.
               </p>
+              {Object.keys(corrections).length > 0 && (
+                <div style={{ marginTop: 12, fontSize: 13, color: C.aprendido }}>
+                  📚 {Object.keys(corrections).length} correcciones aprendidas cargadas
+                </div>
+              )}
             </div>
 
             <div style={{ background: C.surface, borderRadius: 14, border: "1px solid " + C.border, padding: 20, marginBottom: 16 }}>
@@ -567,20 +757,25 @@ export default function ProductClassifier() {
           </div>
         )}
 
-        {/* Dashboard */}
+        {/* ── Dashboard ── */}
         {view === "dashboard" && !loading && classified.length > 0 && (
           <div className="fade-in">
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 28 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 14, marginBottom: 28 }}>
               {[
                 { label: "Total", value: classified.length, color: C.accent, icon: "📊", filter: "ALL" },
                 { label: "Repuestos", value: stats.REPUESTO || 0, color: C.repuesto, icon: "⚙️", pct: true, filter: "REPUESTO" },
                 { label: "Accesorios", value: stats.ACCESORIO || 0, color: C.accesorio, icon: "🔩", pct: true, filter: "ACCESORIO" },
                 { label: "Completos", value: stats.PRODUCTO_COMPLETO || 0, color: C.completo, icon: "📦", pct: true, filter: "PRODUCTO_COMPLETO" },
+                { label: "Aprendidos", value: stats._aprendidos || 0, color: C.aprendido, icon: "📚", filter: null },
               ].map(s => (
                 <div key={s.label}
-                  onClick={() => { setFilter(s.filter); setView("table"); setPage(0); }}
-                  style={{ cursor: "pointer", background: C.surface, borderRadius: 14, border: "1px solid " + C.border, padding: "18px 20px", position: "relative", overflow: "hidden", transition: "transform 0.2s" }}
-                  onMouseEnter={e => e.currentTarget.style.transform = "translateY(-3px)"}
+                  onClick={() => { if (s.filter) { setFilter(s.filter); setView("table"); setPage(0); } }}
+                  style={{
+                    cursor: s.filter ? "pointer" : "default",
+                    background: C.surface, borderRadius: 14, border: "1px solid " + C.border,
+                    padding: "18px 20px", position: "relative", overflow: "hidden", transition: "transform 0.2s",
+                  }}
+                  onMouseEnter={e => { if (s.filter) e.currentTarget.style.transform = "translateY(-3px)"; }}
                   onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}>
                   <div style={{ position: "absolute", top: -20, right: -10, fontSize: 50, opacity: 0.06 }}>{s.icon}</div>
                   <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 500, marginBottom: 6 }}>{s.label}</div>
@@ -647,7 +842,6 @@ export default function ProductClassifier() {
                 </div>
               </div>
 
-              {/* Progress */}
               {aiLoading && (
                 <div style={{ marginTop: 14 }}>
                   <div style={{ fontSize: 12, color: C.accent, marginBottom: 6 }}>
@@ -665,7 +859,6 @@ export default function ProductClassifier() {
                   </div>
                 </div>
               )}
-
               {aiError && <div style={{ fontSize: 12, color: C.danger, marginTop: 10 }}>⚠ {aiError}</div>}
             </div>
 
@@ -673,12 +866,12 @@ export default function ProductClassifier() {
             <div style={{ marginBottom: 28 }}>
               <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>Distribución</h3>
               <div style={{ display: "flex", height: 10, borderRadius: 6, overflow: "hidden", background: C.card, marginBottom: 12 }}>
-                {Object.entries(stats).filter(([, v]) => v > 0).map(([key, val]) => (
+                {Object.entries(stats).filter(([k, v]) => v > 0 && !k.startsWith("_")).map(([key, val]) => (
                   <div key={key} style={{ width: (val / classified.length * 100) + "%", background: (CLS[key] || CLS.OTRO).color, transition: "width .5s" }} />
                 ))}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-                {Object.entries(stats).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([key, val]) => (
+                {Object.entries(stats).filter(([k, v]) => v > 0 && !k.startsWith("_")).sort((a, b) => b[1] - a[1]).map(([key, val]) => (
                   <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                     <div style={{ width: 10, height: 10, borderRadius: 3, background: (CLS[key] || CLS.OTRO).color }} />
                     <span style={{ color: C.textMuted }}>{(CLS[key] || CLS.OTRO).label}: <span style={{ color: C.text, fontWeight: 600 }}>{val}</span></span>
@@ -720,7 +913,7 @@ export default function ProductClassifier() {
           </div>
         )}
 
-        {/* Table */}
+        {/* ── Table ── */}
         {view === "table" && !loading && classified.length > 0 && (
           <div className="fade-in">
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
@@ -766,6 +959,7 @@ export default function ProductClassifier() {
                   {pagedProducts.map((p, i) => {
                     const cls = p._manualClass || p._class.classification;
                     const cfg = CLS[cls] || CLS.OTRO;
+                    const isAprendido = p._source === "APRENDIDO";
                     return (
                       <tr key={p._id} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}
                         onMouseEnter={e => e.currentTarget.style.background = C.surfaceHover}
@@ -795,11 +989,13 @@ export default function ProductClassifier() {
                             <span style={{
                               display: "inline-flex", alignItems: "center", gap: 5,
                               padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600,
-                              background: cfg.glow, color: cfg.color, border: "1px solid " + cfg.color + "25",
+                              background: isAprendido ? C.aprendidoGlow : cfg.glow,
+                              color: isAprendido ? C.aprendido : cfg.color,
+                              border: "1px solid " + (isAprendido ? C.aprendido : cfg.color) + "25",
                             }}>
-                              {cfg.icon} {cfg.label}
+                              {isAprendido ? "📚" : cfg.icon} {cfg.label}
                               {p._manualClass && <span style={{ fontSize: 10, opacity: 0.7 }}>✎</span>}
-                              {p._aiClass && <span style={{ fontSize: 10, opacity: 0.7 }}>🤖</span>}
+                              {p._aiClass && !isAprendido && <span style={{ fontSize: 10, opacity: 0.7 }}>🤖</span>}
                             </span>
                           )}
                         </td>
@@ -840,7 +1036,271 @@ export default function ProductClassifier() {
             )}
           </div>
         )}
+
+        {/* ── History List ── */}
+        {view === "history" && (
+          <div className="fade-in">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 700 }}>📋 Historial de Análisis</h2>
+              {classified.length > 0 && (
+                <Btn active onClick={() => setView("dashboard")}>← Volver al análisis</Btn>
+              )}
+            </div>
+
+            {historyLoading && (
+              <div style={{ textAlign: "center", padding: 40, color: C.textMuted }}>
+                <div style={{ fontSize: 24, animation: "pulse 1.5s infinite", marginBottom: 8 }}>⏳</div>
+                Cargando historial...
+              </div>
+            )}
+
+            {!historyLoading && historyList.length === 0 && (
+              <div style={{ textAlign: "center", padding: 60, color: C.textDim }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
+                <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Sin análisis guardados</div>
+                <div style={{ fontSize: 13 }}>Cargá productos y usá el botón 💾 Guardar para crear un análisis.</div>
+              </div>
+            )}
+
+            {!historyLoading && historyList.map(a => (
+              <div key={a.id} style={{
+                background: C.surface, borderRadius: 14, border: "1px solid " + C.border,
+                padding: "18px 20px", marginBottom: 12,
+              }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ flex: 1 }}>
+                    {renameId === a.id ? (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                        <input
+                          value={renameText}
+                          onChange={e => setRenameText(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") renameAnalysis(a.id); if (e.key === "Escape") setRenameId(null); }}
+                          autoFocus
+                          style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.accent, background: C.bg, color: C.text, fontSize: 14, outline: "none" }}
+                        />
+                        <button onClick={() => renameAnalysis(a.id)} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: C.accent, color: "#fff", fontSize: 12, cursor: "pointer" }}>Guardar</button>
+                        <button onClick={() => setRenameId(null)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, background: "transparent", color: C.textMuted, fontSize: 12, cursor: "pointer" }}>✕</button>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{a.nombre}</div>
+                    )}
+                    <div style={{ fontSize: 12, color: C.textDim, marginBottom: 10 }}>{fmtDate(a.created_at)}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                      <span style={{ fontSize: 12, color: C.textMuted }}>📊 <strong style={{ color: C.text }}>{a.total}</strong> productos</span>
+                      {a.repuestos > 0 && <span style={{ fontSize: 12, color: C.repuesto }}>⚙️ {a.repuestos}</span>}
+                      {a.accesorios > 0 && <span style={{ fontSize: 12, color: C.accesorio }}>🔩 {a.accesorios}</span>}
+                      {a.completos > 0 && <span style={{ fontSize: 12, color: C.completo }}>📦 {a.completos}</span>}
+                      {a.aprendidos > 0 && <span style={{ fontSize: 12, color: C.aprendido }}>📚 {a.aprendidos} aprendidos</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => loadHistoryDetail(a.id)} style={{
+                      padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                      border: "1px solid " + C.accent, background: C.accentGlow, color: C.accent, cursor: "pointer",
+                    }}>Ver</button>
+                    <button onClick={() => { setRenameId(a.id); setRenameText(a.nombre); }} style={{
+                      padding: "7px 10px", borderRadius: 8, fontSize: 12,
+                      border: "1px solid " + C.border, background: "transparent", color: C.textMuted, cursor: "pointer",
+                    }}>✏️</button>
+                    <button onClick={() => setDeleteModalId(a.id)} style={{
+                      padding: "7px 10px", borderRadius: 8, fontSize: 12,
+                      border: "1px solid " + C.danger + "40", background: "transparent", color: C.danger, cursor: "pointer",
+                    }}>🗑</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── History Detail ── */}
+        {view === "historyDetail" && historyDetail && (
+          <div className="fade-in">
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+              <button onClick={() => { setView("history"); loadHistory(); }} style={{
+                padding: "7px 14px", borderRadius: 8, fontSize: 13,
+                border: "1px solid " + C.border, background: "transparent", color: C.textMuted, cursor: "pointer",
+              }}>← Volver</button>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>{historyDetail.nombre}</div>
+                <div style={{ fontSize: 12, color: C.textDim }}>{fmtDate(historyDetail.created_at)}</div>
+              </div>
+              <button onClick={() => exportHistoryCSV(historyProducts)} style={{
+                padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                border: "1px solid " + C.success, background: C.success + "18", color: C.success, cursor: "pointer",
+              }}>📥 Descargar CSV</button>
+              <button onClick={() => setDeleteModalId(historyDetail.id)} style={{
+                padding: "7px 14px", borderRadius: 8, fontSize: 12,
+                border: "1px solid " + C.danger + "40", background: "transparent", color: C.danger, cursor: "pointer",
+              }}>🗑 Eliminar</button>
+            </div>
+
+            {/* Stats cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 24 }}>
+              {[
+                { label: "Total", value: historyDetail.total || 0, color: C.accent, icon: "📊" },
+                { label: "Repuestos", value: historyDetail.repuestos || 0, color: C.repuesto, icon: "⚙️" },
+                { label: "Accesorios", value: historyDetail.accesorios || 0, color: C.accesorio, icon: "🔩" },
+                { label: "Completos", value: historyDetail.completos || 0, color: C.completo, icon: "📦" },
+                { label: "Aprendidos", value: historyDetail.aprendidos || 0, color: C.aprendido, icon: "📚" },
+              ].map(s => (
+                <div key={s.label} style={{
+                  background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "14px 16px",
+                }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>{s.icon} {s.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value.toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Filters */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <input type="text" placeholder="🔍 Buscar..."
+                value={historySearch} onChange={e => { setHistorySearch(e.target.value); setHistoryPage(0); }}
+                style={{ flex: 1, minWidth: 200, padding: "9px 14px", borderRadius: 10, border: "1px solid " + C.border, background: C.surface, color: C.text, fontSize: 13, outline: "none" }}
+                onFocus={e => e.target.style.borderColor = C.accent}
+                onBlur={e => e.target.style.borderColor = C.border}
+              />
+              {["ALL", "REPUESTO", "ACCESORIO", "PRODUCTO_COMPLETO", "SERVICIO", "OTRO"].map(f => {
+                const label = f === "ALL" ? "Todos" : (CLS[f] || {}).label || f;
+                const color = f === "ALL" ? C.accent : (CLS[f] || {}).color;
+                return (
+                  <Btn key={f} active={historyFilter === f} color={color} onClick={() => { setHistoryFilter(f); setHistoryPage(0); }}>
+                    {label}
+                  </Btn>
+                );
+              })}
+            </div>
+
+            <div style={{ fontSize: 12, color: C.textDim, marginBottom: 10 }}>
+              {pagedHistoryProducts.length} de {filteredHistoryProducts.length} productos
+            </div>
+
+            <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid " + C.border }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: C.surface }}>
+                    {["Producto", "Rubro", "Clasificación", "Fuente"].map(col => (
+                      <th key={col} style={{ padding: "11px 14px", textAlign: "left", fontWeight: 600, color: C.textMuted, borderBottom: "1px solid " + C.border, fontSize: 11, textTransform: "uppercase" }}>{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedHistoryProducts.map((p, i) => {
+                    const cls = p.clasificacion || "OTRO";
+                    const cfg = CLS[cls] || CLS.OTRO;
+                    const isAprendido = p.fuente === "APRENDIDO";
+                    return (
+                      <tr key={p.id || i} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}
+                        onMouseEnter={e => e.currentTarget.style.background = C.surfaceHover}
+                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)"}>
+                        <td style={{ padding: "10px 14px", borderBottom: "1px solid " + C.border, maxWidth: 360 }}>
+                          <div style={{ fontWeight: 500, lineHeight: 1.4 }}>{p.producto || "—"}</div>
+                          <div style={{ fontSize: 11, color: C.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{p.codigo}</div>
+                        </td>
+                        <td style={{ padding: "10px 14px", borderBottom: "1px solid " + C.border, color: C.textMuted }}>
+                          <div>{p.rubro || "—"}</div>
+                          {p.sub_rubro && <div style={{ fontSize: 11, color: C.textDim }}>{p.sub_rubro}</div>}
+                        </td>
+                        <td style={{ padding: "10px 14px", borderBottom: "1px solid " + C.border }}>
+                          <span style={{
+                            display: "inline-flex", alignItems: "center", gap: 5,
+                            padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                            background: isAprendido ? C.aprendidoGlow : cfg.glow,
+                            color: isAprendido ? C.aprendido : cfg.color,
+                            border: "1px solid " + (isAprendido ? C.aprendido : cfg.color) + "25",
+                          }}>
+                            {isAprendido ? "📚" : cfg.icon} {cfg.label}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 14px", borderBottom: "1px solid " + C.border }}>
+                          <span style={{ fontSize: 11, color: isAprendido ? C.aprendido : p.fuente === "IA" ? C.accent : C.textDim, fontWeight: 500 }}>
+                            {p.fuente || "REGLAS"}
+                          </span>
+                          <div style={{ fontSize: 11, color: C.textDim }}>{p.confianza}%</div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {totalHistoryPages > 1 && (
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 18, fontSize: 13 }}>
+                <button onClick={() => setHistoryPage(p => Math.max(0, p - 1))} disabled={historyPage === 0} style={{
+                  padding: "6px 14px", borderRadius: 8, border: "1px solid " + C.border,
+                  background: "transparent", color: historyPage === 0 ? C.textDim : C.text, cursor: historyPage === 0 ? "default" : "pointer",
+                }}>← Anterior</button>
+                <span style={{ color: C.textMuted }}>Pág {historyPage + 1}/{totalHistoryPages}</span>
+                <button onClick={() => setHistoryPage(p => Math.min(totalHistoryPages - 1, p + 1))} disabled={historyPage >= totalHistoryPages - 1} style={{
+                  padding: "6px 14px", borderRadius: 8, border: "1px solid " + C.border,
+                  background: "transparent", color: historyPage >= totalHistoryPages - 1 ? C.textDim : C.text, cursor: historyPage >= totalHistoryPages - 1 ? "default" : "pointer",
+                }}>Siguiente →</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* ── Modal: Guardar análisis ── */}
+      {saveModalOpen && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }} onClick={e => { if (e.target === e.currentTarget) setSaveModalOpen(false); }}>
+          <div style={{ background: C.surface, borderRadius: 16, border: "1px solid " + C.border, padding: 28, width: "100%", maxWidth: 440 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>💾 Guardar Análisis</div>
+            <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 20 }}>
+              Se guardarán {classified.length} productos con sus clasificaciones actuales.
+            </div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 6 }}>Nombre del análisis</label>
+            <input
+              value={saveModalName}
+              onChange={e => setSaveModalName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && saveModalName.trim()) saveAnalysis(); }}
+              autoFocus
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid " + C.border, background: C.bg, color: C.text, fontSize: 14, outline: "none", marginBottom: 20 }}
+            />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setSaveModalOpen(false)} style={{
+                padding: "9px 18px", borderRadius: 10, border: "1px solid " + C.border,
+                background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer",
+              }}>Cancelar</button>
+              <button onClick={saveAnalysis} disabled={!saveModalName.trim() || savingAnalysis} style={{
+                padding: "9px 22px", borderRadius: 10, border: "none",
+                background: saveModalName.trim() ? C.accent : C.card,
+                color: "#fff", fontSize: 13, fontWeight: 600, cursor: saveModalName.trim() ? "pointer" : "default",
+              }}>{savingAnalysis ? "Guardando..." : "Guardar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Confirmar eliminación ── */}
+      {deleteModalId !== null && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }} onClick={e => { if (e.target === e.currentTarget) setDeleteModalId(null); }}>
+          <div style={{ background: C.surface, borderRadius: 16, border: "1px solid " + C.border, padding: 28, width: "100%", maxWidth: 400 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>🗑 Eliminar Análisis</div>
+            <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 24, lineHeight: 1.6 }}>
+              ¿Estás seguro que querés eliminar este análisis? Esta acción no se puede deshacer y se borrarán todos los productos asociados.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setDeleteModalId(null)} style={{
+                padding: "9px 18px", borderRadius: 10, border: "1px solid " + C.border,
+                background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer",
+              }}>Cancelar</button>
+              <button onClick={() => deleteAnalysis(deleteModalId)} style={{
+                padding: "9px 22px", borderRadius: 10, border: "none",
+                background: C.danger, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}>Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
