@@ -7,7 +7,7 @@ var MODELS = [
   "llama-3.1-8b-instant"
 ];
 
-function getSystemPrompt(examples) {
+function getSystemPrompt(examples, categories) {
   let examplesText = "";
   if (examples && examples.length > 0) {
     examplesText = "\n\nIMPORTANTE - APRENDIZAJE DE EJEMPLOS PREVIOS DEL USUARIO:\n" +
@@ -16,6 +16,24 @@ function getSystemPrompt(examples) {
       "--- EJEMPLOS ---\n" +
       examples.map(e => `Producto: "${e.producto}" | Rubro: "${e.rubro}" | Clasificacion correcta: ${e.clasificacion_manual}`).join("\n") +
       "\n----------------\n\n";
+  }
+
+  let categoriesText = "";
+  if (categories && categories.length > 0) {
+    const lines = [];
+    categories.forEach(cat => {
+      (cat.subcategories || []).forEach(sub => {
+        const kw = sub.keywords ? " (keywords: " + sub.keywords + ")" : "";
+        lines.push("- " + cat.nombre + " > " + sub.nombre + kw);
+      });
+    });
+    if (lines.length > 0) {
+      categoriesText = "\n\nAdemas de clasificar, asigna cada producto a la CATEGORIA y SUBCATEGORIA mas apropiada de esta lista, y sugiere un TIPO especifico (maximo 3 palabras):\n\n" +
+        "CATEGORIAS DISPONIBLES:\n" + lines.join("\n") +
+        "\n\nAgrega los campos categoria, subcategoria y tipo a cada objeto de resultado. " +
+        "Si no corresponde a ninguna, usa null.\n" +
+        'Ejemplo: {"codigo":"X","clasificacion":"REPUESTO","confianza":85,"razon":"breve","categoria":"Repuestos y Accesorios","subcategoria":"Calefaccion","tipo":"Repuesto termico"}';
+    }
   }
 
   return `Eres un experto en clasificacion de productos industriales (calefaccion, plomeria, gas, herramientas, electricidad, jardineria, refrigeracion, etc).
@@ -36,8 +54,8 @@ Criterios de clasificacion estricta:
 - PRODUCTO_COMPLETO: equipo principal autonomo que funciona por si solo (calderas, bombas, extractores, compresores, herramientas electricas, salamandras, equipos de aire, cortacercos, electrobombas, escaleras, etc.)
 - SERVICIO: mano de obra, instalacion o servicio tecnico
 - OTRO: no encaja claramente en ninguna categoria anterior (pilas, materiales genericos, cortinas, etc.)
-${examplesText}
-IMPORTANTE: 
+${examplesText}${categoriesText}
+IMPORTANTE:
 1. La clasificacion DEBE ser una de las opciones exactas en MAYUSCULAS.
 2. Tu respuesta debe ser solo el JSON.`;
 }
@@ -82,9 +100,11 @@ exports.handler = async function(event) {
     supabase = createClient(supabaseUrl, supabaseKey);
   }
 
-  var products;
+  var products, categories;
   try {
-    products = JSON.parse(event.body).products;
+    const parsed = JSON.parse(event.body);
+    products = parsed.products;
+    categories = parsed.categories || null;
   } catch (e) {
     return { statusCode: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "Request invalido" }) };
   }
@@ -114,7 +134,7 @@ exports.handler = async function(event) {
   }
 
   var userPrompt = buildUserPrompt(products);
-  var systemPrompt = getSystemPrompt(recentCorrections);
+  var systemPrompt = getSystemPrompt(recentCorrections, categories);
   var lastError = "Error desconocido";
 
   // Try each model

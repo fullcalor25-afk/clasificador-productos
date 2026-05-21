@@ -102,11 +102,11 @@ function classifyProduct(product) {
 
 // ─── AI call (one batch at a time) ───────────────────────────────────────────
 
-async function classifyBatchWithAI(products) {
+async function classifyBatchWithAI(products, categories) {
   const res = await fetch("/.netlify/functions/classify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ products }),
+    body: JSON.stringify({ products, categories: categories || [] }),
   });
 
   const data = await res.json();
@@ -219,6 +219,12 @@ export default function ProductClassifier() {
   const [renameText, setRenameText] = useState("");
   const [deleteModalId, setDeleteModalId] = useState(null);
 
+  // Categorías
+  const [categories, setCategories] = useState([]);
+  const categoriesRef = useRef([]);
+  const [catModal, setCatModal] = useState(null);
+  const [catDeleteModal, setCatDeleteModal] = useState(null);
+
   // ─── Cargar correcciones al montar ──────────────────────────────────────
 
   useEffect(() => {
@@ -233,6 +239,16 @@ export default function ProductClassifier() {
         }
       })
       .catch(e => console.log("Error cargando correcciones", e));
+
+    fetch("/.netlify/functions/categories")
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          categoriesRef.current = data;
+          setCategories(data);
+        }
+      })
+      .catch(e => console.log("Error cargando categorías", e));
   }, []);
 
   // ─── Process products when data or AI results change ─────────────────────
@@ -256,6 +272,7 @@ export default function ProductClassifier() {
       });
 
       if (aiResults) {
+        const cats = categoriesRef.current;
         results.forEach(r => {
           if (r._source === "APRENDIDO") return;
           const aiMatch = aiResults.find(a => a.codigo === r.CODIGO);
@@ -266,6 +283,15 @@ export default function ProductClassifier() {
               r._class.confidence = aiMatch.confianza;
               r._class.reasons = [aiMatch.razon, ...r._class.reasons];
               r._source = "IA";
+            }
+            if (aiMatch.categoria) {
+              r._categoria = aiMatch.categoria;
+              r._subcategoria = aiMatch.subcategoria || null;
+              r._tipo = aiMatch.tipo || null;
+              const catObj = cats.find(c => c.nombre === aiMatch.categoria);
+              r._category_id = catObj ? catObj.id : null;
+              const subObj = catObj ? (catObj.subcategories || []).find(s => s.nombre === aiMatch.subcategoria) : null;
+              r._subcategory_id = subObj ? subObj.id : null;
             }
           }
         });
@@ -334,7 +360,7 @@ export default function ProductClassifier() {
         await wait(delayTime);
       }
 
-      const response = await classifyBatchWithAI(batch);
+      const response = await classifyBatchWithAI(batch, categoriesRef.current);
 
       if (response.error) {
         consecutiveErrors++;
@@ -422,6 +448,20 @@ export default function ProductClassifier() {
     }
   };
 
+  const handleManualCategory = (id, field, value) => {
+    setClassified(prev => prev.map(p => {
+      if (p._id !== id) return p;
+      const cats = categoriesRef.current;
+      if (field === "categoria") {
+        const catObj = cats.find(c => c.nombre === value);
+        return { ...p, _categoria: value || null, _subcategoria: null, _category_id: catObj ? catObj.id : null, _subcategory_id: null };
+      }
+      const catObj = cats.find(c => c.nombre === p._categoria);
+      const subObj = catObj ? (catObj.subcategories || []).find(s => s.nombre === value) : null;
+      return { ...p, _subcategoria: value || null, _subcategory_id: subObj ? subObj.id : null };
+    }));
+  };
+
   // ─── Export CSV (análisis actual) ────────────────────────────────────────
 
   const exportCSV = (filterType = "ALL") => {
@@ -431,7 +471,7 @@ export default function ProductClassifier() {
 
     if (toExport.length === 0) return alert("No hay productos para exportar en esta categoría.");
 
-    const headers = ["CODIGO", "PRODUCTO", "RUBRO", "SUB RUBRO", "PROVEEDOR", "CLASIFICACION", "CONFIANZA", "FUENTE", "RAZONES"];
+    const headers = ["CODIGO", "PRODUCTO", "RUBRO", "SUB RUBRO", "PROVEEDOR", "CLASIFICACION", "CONFIANZA", "FUENTE", "RAZONES", "CATEGORIA", "SUBCATEGORIA", "TIPO"];
     const rows = toExport.map(p => [
       p.CODIGO || "",
       '"' + (p.PRODUCTO || "").replace(/"/g, '""') + '"',
@@ -442,6 +482,9 @@ export default function ProductClassifier() {
       (p._class.confidence || 0) + "%",
       p._manualClass ? "APRENDIDO" : (p._source || "REGLAS"),
       '"' + (p._class.reasons || []).join("; ").replace(/"/g, '""') + '"',
+      p._categoria || "",
+      p._subcategoria || "",
+      p._tipo || "",
     ]);
     const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
@@ -512,6 +555,9 @@ export default function ProductClassifier() {
         clasificacion: p._manualClass || p._class.classification,
         fuente: p._manualClass ? "APRENDIDO" : (p._source || "REGLAS"),
         confianza: p._class.confidence || 0,
+        category_id: p._category_id || null,
+        subcategory_id: p._subcategory_id || null,
+        tipo: p._tipo || null,
       }));
       await fetch("/.netlify/functions/history", {
         method: "POST",
@@ -558,6 +604,58 @@ export default function ProductClassifier() {
     setProducts([]); setClassified([]); setFilter("ALL"); setSearchTerm("");
     setView("upload"); setAiResults(null); setAiError(null); setPasteData("");
     setPage(0); setStats({}); setAiStatus("");
+  };
+
+  // ─── Category CRUD ───────────────────────────────────────────────────────
+
+  const reloadCategories = async () => {
+    try {
+      const res = await fetch("/.netlify/functions/categories");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) { categoriesRef.current = data; setCategories(data); }
+      }
+    } catch (e) { console.log("Error recargando categorías", e); }
+  };
+
+  const saveCategory = async () => {
+    if (!catModal || !catModal.data.nombre?.trim()) return;
+    const { mode, data, categoryId } = catModal;
+    try {
+      if (mode === "new-cat") {
+        await fetch("/.netlify/functions/categories", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nombre: data.nombre, color: data.color, icono: data.icono, orden: data.orden || 0 }),
+        });
+      } else if (mode === "edit-cat") {
+        await fetch("/.netlify/functions/categories?id=" + data.id + "&type=category", {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nombre: data.nombre, color: data.color, icono: data.icono }),
+        });
+      } else if (mode === "new-sub") {
+        await fetch("/.netlify/functions/categories", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "subcategory", category_id: categoryId, nombre: data.nombre, keywords: data.keywords, descripcion: data.descripcion, orden: data.orden || 0 }),
+        });
+      } else if (mode === "edit-sub") {
+        await fetch("/.netlify/functions/categories?id=" + data.id + "&type=subcategory", {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nombre: data.nombre, keywords: data.keywords, descripcion: data.descripcion }),
+        });
+      }
+      await reloadCategories();
+      setCatModal(null);
+    } catch (e) { console.log("Error guardando categoría", e); }
+  };
+
+  const deleteCategoryItem = async () => {
+    if (!catDeleteModal) return;
+    const { id, type } = catDeleteModal;
+    try {
+      await fetch("/.netlify/functions/categories?id=" + id + "&type=" + type, { method: "DELETE" });
+      await reloadCategories();
+      setCatDeleteModal(null);
+    } catch (e) { console.log("Error eliminando categoría", e); }
   };
 
   // ─── Filtering & sorting ─────────────────────────────────────────────────
@@ -659,6 +757,7 @@ export default function ProductClassifier() {
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <Btn active={view === "history" || view === "historyDetail"} onClick={loadHistory}>📋 Historial</Btn>
+          <Btn active={view === "categories"} onClick={() => setView("categories")}>🗂 Categorías</Btn>
           {classified.length > 0 && (
             <>
               <Btn active={view === "dashboard"} onClick={() => setView("dashboard")}>Dashboard</Btn>
@@ -906,6 +1005,33 @@ export default function ProductClassifier() {
               })()}
             </div>
 
+            {/* Top categorías */}
+            {classified.some(p => p._categoria) && (
+              <div style={{ background: C.surface, borderRadius: 14, border: "1px solid " + C.border, padding: 20, marginBottom: 28 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>Top Categorías</h3>
+                {(() => {
+                  const m = {};
+                  classified.forEach(p => { if (p._categoria) m[p._categoria] = (m[p._categoria] || 0) + 1; });
+                  const sorted = Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                  const max = sorted[0]?.[1] || 1;
+                  return sorted.map(([cat, count]) => {
+                    const catObj = categories.find(c => c.nombre === cat);
+                    return (
+                      <div key={cat} style={{ marginBottom: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                          <span style={{ color: C.textMuted }}>{catObj ? catObj.icono + " " : ""}{cat}</span>
+                          <span style={{ fontWeight: 600, color: catObj ? catObj.color : C.accent }}>{count}</span>
+                        </div>
+                        <div style={{ height: 5, background: C.card, borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ width: (count / max * 100) + "%", height: "100%", background: "linear-gradient(90deg," + (catObj ? catObj.color : C.accent) + "," + C.accent + ")", borderRadius: 3 }} />
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            )}
+
             <button onClick={() => setView("table")} style={{
               width: "100%", padding: 14, borderRadius: 12, border: "1px solid " + C.border,
               background: C.surface, color: C.text, fontSize: 14, fontWeight: 600, cursor: "pointer",
@@ -952,6 +1078,9 @@ export default function ProductClassifier() {
                         letterSpacing: "0.04em", textTransform: "uppercase", userSelect: "none",
                       }}>{col.l} {sortBy === col.k && (sortDir === "asc" ? "↑" : "↓")}</th>
                     ))}
+                    {categories.length > 0 && (
+                      <th style={{ padding: "12px 14px", textAlign: "left", fontWeight: 600, color: C.textMuted, borderBottom: "1px solid " + C.border, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Categoría</th>
+                    )}
                     <th style={{ padding: "12px 14px", textAlign: "center", fontWeight: 600, color: C.textMuted, borderBottom: "1px solid " + C.border, fontSize: 11, textTransform: "uppercase" }}>Acción</th>
                   </tr>
                 </thead>
@@ -1008,6 +1137,38 @@ export default function ProductClassifier() {
                           </div>
                           {p._class.reasons?.[0] && <div style={{ fontSize: 10, color: C.textDim, marginTop: 3 }}>{p._class.reasons[0]}</div>}
                         </td>
+                        {categories.length > 0 && (
+                          <td style={{ padding: "10px 14px", borderBottom: "1px solid " + C.border, minWidth: 160 }}>
+                            {editingId === p._id ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                <select value={p._categoria || ""} onChange={e => handleManualCategory(p._id, "categoria", e.target.value)}
+                                  style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.border, background: C.bg, color: C.text, fontSize: 12, outline: "none", width: "100%" }}>
+                                  <option value="">Sin categoría</option>
+                                  {categories.map(c => <option key={c.id} value={c.nombre}>{c.icono} {c.nombre}</option>)}
+                                </select>
+                                {p._categoria && (
+                                  <select value={p._subcategoria || ""} onChange={e => handleManualCategory(p._id, "subcategoria", e.target.value)}
+                                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.border, background: C.bg, color: C.text, fontSize: 12, outline: "none", width: "100%" }}>
+                                    <option value="">Sin subcategoría</option>
+                                    {(categories.find(c => c.nombre === p._categoria)?.subcategories || []).map(s => (
+                                      <option key={s.id} value={s.nombre}>{s.nombre}</option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                            ) : (
+                              <div>
+                                {p._categoria ? (
+                                  <>
+                                    <div style={{ fontSize: 12, color: C.textMuted }}>{p._categoria}</div>
+                                    {p._subcategoria && <div style={{ fontSize: 11, color: C.textDim }}>↳ {p._subcategoria}</div>}
+                                    {p._tipo && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: C.accentGlow, color: C.accent, marginTop: 2, display: "inline-block" }}>{p._tipo}</span>}
+                                  </>
+                                ) : <span style={{ color: C.textDim, fontSize: 12 }}>—</span>}
+                              </div>
+                            )}
+                          </td>
+                        )}
                         <td style={{ padding: "10px 14px", borderBottom: "1px solid " + C.border, textAlign: "center" }}>
                           <button onClick={() => setEditingId(editingId === p._id ? null : p._id)} style={{
                             padding: "5px 10px", borderRadius: 6, fontSize: 11,
@@ -1241,7 +1402,179 @@ export default function ProductClassifier() {
             )}
           </div>
         )}
+
+        {/* ── Categories Management ── */}
+        {view === "categories" && (
+          <div className="fade-in">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 700 }}>🗂 Gestión de Categorías</h2>
+              <button onClick={() => setCatModal({ mode: "new-cat", data: { nombre: "", color: "#3b82f6", icono: "📦", orden: 0 } })} style={{
+                padding: "9px 18px", borderRadius: 10, border: "none",
+                background: C.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}>+ Nueva Categoría</button>
+            </div>
+
+            {categories.length === 0 && (
+              <div style={{ textAlign: "center", padding: 60, color: C.textDim, background: C.surface, borderRadius: 14, border: "1px solid " + C.border }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>🗂</div>
+                <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Sin categorías cargadas</div>
+                <div style={{ fontSize: 13 }}>Ejecutá el SQL en Supabase y recargá la página.</div>
+              </div>
+            )}
+
+            {categories.map(cat => (
+              <div key={cat.id} style={{
+                background: C.surface, borderRadius: 14, border: "1px solid " + C.border,
+                padding: "18px 20px", marginBottom: 14,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: (cat.subcategories || []).length > 0 ? 14 : 0 }}>
+                  <span style={{ fontSize: 20 }}>{cat.icono}</span>
+                  <div style={{ width: 12, height: 12, borderRadius: 3, background: cat.color, flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700, fontSize: 16, flex: 1, color: C.text }}>{cat.nombre}</span>
+                  <span style={{ fontSize: 12, color: C.textDim }}>{(cat.subcategories || []).length} subcategorías</span>
+                  <button onClick={() => setCatModal({ mode: "edit-cat", data: { ...cat } })} style={{
+                    padding: "5px 10px", borderRadius: 6, border: "1px solid " + C.border,
+                    background: "transparent", color: C.textMuted, cursor: "pointer", fontSize: 12,
+                  }}>✏️</button>
+                  <button onClick={() => setCatDeleteModal({ id: cat.id, type: "category", nombre: cat.nombre })} style={{
+                    padding: "5px 10px", borderRadius: 6, border: "1px solid " + C.danger + "40",
+                    background: "transparent", color: C.danger, cursor: "pointer", fontSize: 12,
+                  }}>🗑</button>
+                </div>
+
+                <div style={{ paddingLeft: 20 }}>
+                  {(cat.subcategories || []).map(sub => (
+                    <div key={sub.id} style={{
+                      display: "flex", alignItems: "center", gap: 10, padding: "8px 14px",
+                      borderRadius: 8, marginBottom: 4, background: C.card,
+                    }}>
+                      <span style={{ color: C.textDim, fontSize: 11, flexShrink: 0 }}>├─</span>
+                      <span style={{ fontWeight: 600, fontSize: 14, color: C.text, minWidth: 120 }}>{sub.nombre}</span>
+                      {sub.keywords && (
+                        <span style={{ fontSize: 11, color: C.textDim, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {sub.keywords}
+                        </span>
+                      )}
+                      <button onClick={() => setCatModal({ mode: "edit-sub", data: { ...sub }, categoryId: cat.id })} style={{
+                        padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.border,
+                        background: "transparent", color: C.textMuted, cursor: "pointer", fontSize: 11, flexShrink: 0,
+                      }}>✏️</button>
+                      <button onClick={() => setCatDeleteModal({ id: sub.id, type: "subcategory", nombre: sub.nombre })} style={{
+                        padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.danger + "40",
+                        background: "transparent", color: C.danger, cursor: "pointer", fontSize: 11, flexShrink: 0,
+                      }}>🗑</button>
+                    </div>
+                  ))}
+                  <button onClick={() => setCatModal({ mode: "new-sub", data: { nombre: "", keywords: "", descripcion: "", orden: 0 }, categoryId: cat.id })} style={{
+                    marginTop: 6, padding: "7px 14px", borderRadius: 8, border: "1px dashed " + C.border,
+                    background: "transparent", color: C.textDim, cursor: "pointer", fontSize: 12,
+                    width: "100%", textAlign: "left",
+                  }}>+ Subcategoría</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* ── Modal: Categoría ── */}
+      {catModal && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }} onClick={e => { if (e.target === e.currentTarget) setCatModal(null); }}>
+          <div style={{ background: C.surface, borderRadius: 16, border: "1px solid " + C.border, padding: 28, width: "100%", maxWidth: 440 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>
+              {catModal.mode === "new-cat" ? "+ Nueva Categoría" :
+               catModal.mode === "edit-cat" ? "✏️ Editar Categoría" :
+               catModal.mode === "new-sub" ? "+ Nueva Subcategoría" : "✏️ Editar Subcategoría"}
+            </div>
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 6 }}>Nombre</label>
+            <input
+              autoFocus
+              value={catModal.data.nombre || ""}
+              onChange={e => setCatModal(m => ({ ...m, data: { ...m.data, nombre: e.target.value } }))}
+              onKeyDown={e => { if (e.key === "Enter") saveCategory(); if (e.key === "Escape") setCatModal(null); }}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid " + C.border, background: C.bg, color: C.text, fontSize: 14, outline: "none", marginBottom: 14 }}
+            />
+
+            {(catModal.mode === "new-cat" || catModal.mode === "edit-cat") && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 6 }}>Ícono (emoji)</label>
+                <input
+                  value={catModal.data.icono || ""}
+                  onChange={e => setCatModal(m => ({ ...m, data: { ...m.data, icono: e.target.value } }))}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid " + C.border, background: C.bg, color: C.text, fontSize: 20, outline: "none", marginBottom: 14 }}
+                />
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 8 }}>Color</label>
+                <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+                  {["#3b82f6", "#f59e0b", "#10b981", "#8b5cf6", "#ef4444", "#06b6d4"].map(color => (
+                    <div key={color} onClick={() => setCatModal(m => ({ ...m, data: { ...m.data, color } }))} style={{
+                      width: 28, height: 28, borderRadius: 8, background: color, cursor: "pointer",
+                      border: catModal.data.color === color ? "3px solid #fff" : "3px solid transparent",
+                      transition: "border 0.1s", boxSizing: "border-box",
+                    }} />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {(catModal.mode === "new-sub" || catModal.mode === "edit-sub") && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 6 }}>Keywords (ayudan a la IA a clasificar)</label>
+                <textarea
+                  value={catModal.data.keywords || ""}
+                  onChange={e => setCatModal(m => ({ ...m, data: { ...m.data, keywords: e.target.value } }))}
+                  placeholder="caldera, radiador, termocupla, diafragma..."
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid " + C.border, background: C.bg, color: C.text, fontSize: 13, outline: "none", minHeight: 80, resize: "vertical", marginBottom: 14 }}
+                />
+              </>
+            )}
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setCatModal(null)} style={{
+                padding: "9px 18px", borderRadius: 10, border: "1px solid " + C.border,
+                background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer",
+              }}>Cancelar</button>
+              <button onClick={saveCategory} disabled={!catModal.data.nombre?.trim()} style={{
+                padding: "9px 22px", borderRadius: 10, border: "none",
+                background: catModal.data.nombre?.trim() ? C.accent : C.card,
+                color: "#fff", fontSize: 13, fontWeight: 600,
+                cursor: catModal.data.nombre?.trim() ? "pointer" : "default",
+              }}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Eliminar categoría ── */}
+      {catDeleteModal && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }} onClick={e => { if (e.target === e.currentTarget) setCatDeleteModal(null); }}>
+          <div style={{ background: C.surface, borderRadius: 16, border: "1px solid " + C.border, padding: 28, width: "100%", maxWidth: 400 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>🗑 Eliminar</div>
+            <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 24, lineHeight: 1.6 }}>
+              ¿Eliminar <strong style={{ color: C.text }}>{catDeleteModal.nombre}</strong>?
+              {catDeleteModal.type === "category" && (
+                <span style={{ color: C.danger }}> Esto también eliminará todas sus subcategorías.</span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setCatDeleteModal(null)} style={{
+                padding: "9px 18px", borderRadius: 10, border: "1px solid " + C.border,
+                background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer",
+              }}>Cancelar</button>
+              <button onClick={deleteCategoryItem} style={{
+                padding: "9px 22px", borderRadius: 10, border: "none",
+                background: C.danger, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}>Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal: Guardar análisis ── */}
       {saveModalOpen && (
