@@ -3,7 +3,7 @@ const fetch = require("node-fetch");
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Content-Type": "application/json",
 };
 
@@ -46,6 +46,20 @@ exports.handler = async function (event) {
       method: "POST",
       headers: { ...headers, "Prefer": "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { statusCode: res.status, headers: CORS, body: JSON.stringify(err) };
+    }
+    return { statusCode: 200, headers: CORS, body: JSON.stringify({ success: true }) };
+  }
+
+  if (event.httpMethod === "DELETE") {
+    const id = (event.queryStringParameters || {}).id;
+    if (!id) return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Falta id" }) };
+    const res = await fetch(SUPABASE_URL + "/rest/v1/corrections?id=eq." + id, {
+      method: "DELETE",
+      headers: { ...headers, "Prefer": "return=minimal" },
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

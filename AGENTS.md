@@ -40,6 +40,8 @@ Aplicación web para clasificar productos industriales (repuestos, accesorios, p
 
 ### `analysis_products` (nueva)
 - `id`, `analysis_id` (FK → analyses, CASCADE), `codigo`, `producto`, `rubro`, `sub_rubro`, `clasificacion`, `fuente`, `confianza`, `category_id` (FK → categories), `subcategory_id` (FK → subcategories), `tipo`
+- Columnas TN (nullable): `slug`, `nombre_limpio`, `marca`, `descripcion_html`, `tags` (JSON string), `seo_titulo`, `seo_descripcion`, `peso_kg` (numeric), `alto_cm`, `ancho_cm`, `profundidad_cm`, `categoria_tiendanube`
+- SQL de creación/migración en `supabase_todo.sql`
 
 ### `categories` (nueva)
 - `id`, `nombre`, `color` (hex), `icono` (emoji), `orden`, `activa`, `created_at`
@@ -64,6 +66,7 @@ Aplicación web para clasificar productos industriales (repuestos, accesorios, p
 - `history` — lista de análisis guardados con acciones Ver/Renombrar/Eliminar
 - `historyDetail` — detalle de un análisis: tabla de productos con filtros, paginación, exportar CSV, eliminar
 - `categories` — panel de gestión: árbol de categorías con subcategorías, CRUD completo con modales
+- `exportTN` — exportación a Tienda Nube: 3 pasos (selección → enriquecimiento IA → descarga CSV)
 
 ## Funcionalidades del header
 - **📋 Historial** — siempre visible, abre lista de análisis guardados
@@ -71,6 +74,7 @@ Aplicación web para clasificar productos industriales (repuestos, accesorios, p
 - **💾 Guardar** — visible cuando hay productos clasificados, abre modal de nombre y guarda en Supabase
 - **Dashboard / Tabla** — navegación entre vistas del análisis actual
 - **📥 Exportar** — dropdown para exportar CSV (todos o por categoría), incluye columnas FUENTE, CATEGORIA, SUBCATEGORIA, TIPO
+- **🛒 Tienda Nube** — visible cuando hay productos clasificados, abre flujo de exportación de 3 pasos
 - **Nueva carga** — resetea toda la app
 
 ## Flujo de categorías
@@ -80,6 +84,43 @@ Aplicación web para clasificar productos industriales (repuestos, accesorios, p
 - Campos en producto: `_categoria`, `_subcategoria`, `_tipo`, `_category_id`, `_subcategory_id`
 - Al guardar historial: se guardan `category_id`, `subcategory_id`, `tipo` en `analysis_products`
 - Edición manual de categoría/subcategoría disponible en la columna Categoría de la tabla (inline con dropdowns)
+
+## Módulo: Exportación a Tienda Nube
+
+### `netlify/functions/enrich.js`
+- POST: recibe `products` (máx 15), enriquece con Groq (`llama-3.3-70b-versatile`, fallback `llama-3.1-8b-instant`)
+- Genera por producto: `slug`, `nombre_limpio`, `marca`, `descripcion_html`, `tags`, `seo_titulo`, `seo_descripcion`, `peso_kg`, `alto_cm`, `ancho_cm`, `profundidad_cm`, `categoria_tiendanube`
+- Responde: `{ results: [...] }`
+
+### Vista `exportTN`
+- Accesible desde botón **🛒 Tienda Nube** en el header (visible con productos clasificados)
+- Paso 1: Selección de productos (checkbox por fila, preselección automática REPUESTO+ACCESORIO)
+- Paso 2: Enriquecimiento con IA (opcional, se puede saltar para exportar con datos básicos)
+- Paso 3: Preview de las primeras 3 filas + botón de descarga
+
+### Formato CSV Tienda Nube
+- Separador: `;` (punto y coma)
+- Encoding: UTF-8 con BOM (`﻿`)
+- 24 columnas en el orden exacto que requiere Tienda Nube
+- Nombre de archivo: `tiendanube_repuestos.csv`
+
+### Funciones en `App.jsx`
+- `slugify(text)` — normaliza texto a slug URL válido
+- `buildCategoriaTN(product)` — mapea `_categoria`/`_subcategoria` a jerarquía Tienda Nube
+- `exportTiendaNubeCSV(productos)` — genera y descarga el CSV
+- `runEnrich(selectedProducts)` — llama a `enrich.js` en lotes de 15, actualiza `_enriched` en estado
+
+### Campo `_enriched`
+- En sesión activa: vive en el estado del producto en memoria
+- Al guardar en historial: `saveAnalysis` mapea `_enriched` a 12 columnas planas en `analysis_products`
+- Al cargar del historial: `loadHistoryDetail` reconstruye `_enriched` desde las columnas planas (`tags` se parsea de JSON string a array)
+- Si el usuario omite enriquecimiento, el CSV usa `slugify(PRODUCTO)` y `buildCategoriaTN` como fallback
+- El botón **🛒 CSV Tienda Nube** en la vista `historyDetail` aparece solo si algún producto tiene `_enriched` reconstruido
+
+### Función `exportHistoryTiendaNubeCSV(histProductos)`
+- Adapta los productos del historial (campos lowercase) a la firma de `exportTiendaNubeCSV` (campos UPPERCASE)
+- Solo procesa productos con `_enriched` definido
+- Si no hay ninguno, muestra alert informativo
 
 ## Reglas de desarrollo
 - No modificar `classifyProduct()` ni sus keywords

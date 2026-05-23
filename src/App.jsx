@@ -225,6 +225,14 @@ export default function ProductClassifier() {
   const [catModal, setCatModal] = useState(null);
   const [catDeleteModal, setCatDeleteModal] = useState(null);
 
+  // Exportación Tienda Nube
+  const [exportStep, setExportStep] = useState(1);
+  const [exportSelected, setExportSelected] = useState([]);
+  const [enrichLoading, setEnrichLoading] = useState(false);
+  const [enrichedCount, setEnrichedCount] = useState(0);
+  const [enrichStatus, setEnrichStatus] = useState("");
+  const enrichAbort = useRef(false);
+
   // ─── Cargar correcciones al montar ──────────────────────────────────────
 
   useEffect(() => {
@@ -408,6 +416,55 @@ export default function ProductClassifier() {
 
   const stopAI = () => { aiAbort.current = true; };
 
+  // ─── Enrich for Tienda Nube ──────────────────────────────────────────────
+
+  const runEnrich = async (selectedProducts) => {
+    setEnrichLoading(true);
+    setEnrichedCount(0);
+    setEnrichStatus("Iniciando...");
+    enrichAbort.current = false;
+
+    const batchSize = 15;
+    const total = selectedProducts.length;
+    let processed = 0;
+
+    for (let i = 0; i < Math.ceil(total / batchSize); i++) {
+      if (enrichAbort.current) { setEnrichStatus("Cancelado"); break; }
+
+      const batch = selectedProducts.slice(i * batchSize, (i + 1) * batchSize);
+      setEnrichStatus(`Enriqueciendo lote ${i + 1} de ${Math.ceil(total / batchSize)}...`);
+
+      if (i > 0) await new Promise(r => setTimeout(r, 3000));
+
+      try {
+        const res = await fetch("/.netlify/functions/enrich", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ products: batch }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.results) {
+          setClassified(prev => prev.map(p => {
+            const match = data.results.find(r => r.codigo === p.CODIGO);
+            return match ? { ...p, _enriched: match } : p;
+          }));
+          processed += batch.length;
+          setEnrichedCount(processed);
+          setEnrichStatus(`✓ ${processed}/${total} enriquecidos`);
+        }
+      } catch (e) {
+        console.log("Error enriqueciendo lote", e);
+      }
+    }
+
+    if (!enrichAbort.current) {
+      setEnrichStatus(`✅ ${processed} productos enriquecidos`);
+      setExportStep(3);
+    }
+    setEnrichLoading(false);
+  };
+
   // ─── Manual correction ───────────────────────────────────────────────────
 
   const handleManualClassify = (id, newClass) => {
@@ -516,6 +573,107 @@ export default function ProductClassifier() {
     URL.revokeObjectURL(url);
   };
 
+  // ─── Tienda Nube helpers ─────────────────────────────────────────────────
+
+  // Adapta productos del historial (campos lowercase, _enriched ya reconstruido)
+  // a la forma que acepta exportTiendaNubeCSV (campos uppercase)
+  const exportHistoryTiendaNubeCSV = (histProductos) => {
+    const enriched = histProductos.filter(p => p._enriched);
+    if (enriched.length === 0) {
+      alert("Este análisis no tiene productos enriquecidos con IA. Volvé a cargar el análisis en el flujo principal y ejecutá el enriquecimiento antes de guardar.");
+      return;
+    }
+    const mapped = enriched.map(p => ({
+      CODIGO: p.codigo || "",
+      PRODUCTO: p.producto || "",
+      RUBRO: p.rubro || "",
+      "SUB RUBRO": p.sub_rubro || "",
+      PRECIO: 0,
+      _categoria: null,
+      _subcategoria: null,
+      _enriched: p._enriched,
+    }));
+    exportTiendaNubeCSV(mapped);
+  };
+
+  function slugify(text) {
+    return (text || "").toLowerCase()
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .trim();
+  }
+
+  function buildCategoriaTN(product) {
+    const MAP = {
+      "Calefacción":    "Repuestos > Calefacción",
+      "Refrigeración":  "Repuestos > Refrigeración",
+      "Gas y Agua":     "Repuestos > Gas y Agua",
+      "Agua Sanitaria": "Repuestos > Agua Sanitaria",
+      "Herramientas":   "Herramientas",
+    };
+    const base = MAP[product._categoria] || "Repuestos";
+    return product._subcategoria ? base + " > " + product._subcategoria : base;
+  }
+
+  const exportTiendaNubeCSV = (productos) => {
+    const HEADERS = [
+      '"Identificador de URL"', "Nombre", "Categorías", "Precio",
+      '"Precio promocional"', '"Peso (kg)"', '"Alto (cm)"', '"Ancho (cm)"',
+      '"Profundidad (cm)"', "Stock", "SKU", '"Código de barras"',
+      '"Mostrar en tienda"', '"Envío sin cargo"', "Descripción", "Tags",
+      '"Título para SEO"', '"Descripción para SEO"', "Marca",
+      '"Producto Físico"', '"MPN (Número de pieza del fabricante)"',
+      "Sexo", '"Rango de edad"', "Costo"
+    ];
+
+    const rows = productos.map(p => {
+      const e = p._enriched || {};
+      const precio = parseFloat((p.PRECIO || 0).toString().replace(",", ".")) || 0;
+      const mostrar = precio > 0 ? "SI" : "NO";
+      const slug = e.slug || slugify(p.PRODUCTO || "");
+      const nombre = e.nombre_limpio || p.PRODUCTO || "";
+      const categoria = e.categoria_tiendanube || buildCategoriaTN(p);
+      const tags = Array.isArray(e.tags) ? e.tags.join(", ") : (e.tags || "");
+      const desc = e.descripcion_html || "";
+      const seoT = e.seo_titulo || nombre.substring(0, 70);
+      const seoD = e.seo_descripcion || "";
+      const marca = e.marca || "";
+      const mpn = p["CODIGO EXTERNO"] || "";
+
+      return [
+        slug,
+        `"${nombre.replace(/"/g, '""')}"`,
+        `"${categoria}"`,
+        precio > 0 ? precio.toFixed(2).replace(".", ",") : "",
+        "",
+        e.peso_kg || "", e.alto_cm || "", e.ancho_cm || "", e.profundidad_cm || "",
+        "1",
+        p.CODIGO || "",
+        "",
+        mostrar,
+        "NO",
+        `"${desc.replace(/"/g, '""')}"`,
+        `"${tags}"`,
+        `"${seoT.replace(/"/g, '""')}"`,
+        `"${seoD.replace(/"/g, '""')}"`,
+        marca,
+        "SI",
+        mpn,
+        "", "", ""
+      ].join(";");
+    });
+
+    const csv = [HEADERS.join(";"), ...rows].join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "tiendanube_repuestos.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   // ─── Historial functions ─────────────────────────────────────────────────
 
   const loadHistory = async () => {
@@ -535,6 +693,33 @@ export default function ProductClassifier() {
     try {
       const res = await fetch("/.netlify/functions/history?id=" + id);
       const data = await res.json();
+      // Reconstruct _enriched from stored TN flat columns
+      if (Array.isArray(data.products)) {
+        data.products = data.products.map(p => {
+          if (!p.slug && !p.nombre_limpio) return p;
+          let parsedTags = p.tags;
+          if (typeof p.tags === "string") {
+            try { parsedTags = JSON.parse(p.tags); } catch (e) { parsedTags = p.tags; }
+          }
+          return {
+            ...p,
+            _enriched: {
+              slug: p.slug || null,
+              nombre_limpio: p.nombre_limpio || null,
+              marca: p.marca || null,
+              descripcion_html: p.descripcion_html || null,
+              tags: parsedTags || [],
+              seo_titulo: p.seo_titulo || null,
+              seo_descripcion: p.seo_descripcion || null,
+              peso_kg: p.peso_kg || null,
+              alto_cm: p.alto_cm || null,
+              ancho_cm: p.ancho_cm || null,
+              profundidad_cm: p.profundidad_cm || null,
+              categoria_tiendanube: p.categoria_tiendanube || null,
+            },
+          };
+        });
+      }
       setHistoryDetail(data);
       setHistoryPage(0);
       setHistoryFilter("ALL");
@@ -547,18 +732,34 @@ export default function ProductClassifier() {
   const saveAnalysis = async () => {
     setSavingAnalysis(true);
     try {
-      const productos = classified.map(p => ({
-        codigo: p.CODIGO || "",
-        producto: p.PRODUCTO || "",
-        rubro: p.RUBRO || "",
-        sub_rubro: p["SUB RUBRO"] || "",
-        clasificacion: p._manualClass || p._class.classification,
-        fuente: p._manualClass ? "APRENDIDO" : (p._source || "REGLAS"),
-        confianza: p._class.confidence || 0,
-        category_id: p._category_id || null,
-        subcategory_id: p._subcategory_id || null,
-        tipo: p._tipo || null,
-      }));
+      const productos = classified.map(p => {
+        const e = p._enriched || null;
+        return {
+          codigo: p.CODIGO || "",
+          producto: p.PRODUCTO || "",
+          rubro: p.RUBRO || "",
+          sub_rubro: p["SUB RUBRO"] || "",
+          clasificacion: p._manualClass || p._class.classification,
+          fuente: p._manualClass ? "APRENDIDO" : (p._source || "REGLAS"),
+          confianza: p._class.confidence || 0,
+          category_id: p._category_id || null,
+          subcategory_id: p._subcategory_id || null,
+          tipo: p._tipo || null,
+          // Datos enriquecidos de Tienda Nube (null si no se enriqueció con IA)
+          slug: e ? (e.slug || null) : null,
+          nombre_limpio: e ? (e.nombre_limpio || null) : null,
+          marca: e ? (e.marca || null) : null,
+          descripcion_html: e ? (e.descripcion_html || null) : null,
+          tags: e ? (Array.isArray(e.tags) ? JSON.stringify(e.tags) : (e.tags || null)) : null,
+          seo_titulo: e ? (e.seo_titulo || null) : null,
+          seo_descripcion: e ? (e.seo_descripcion || null) : null,
+          peso_kg: e ? (e.peso_kg || null) : null,
+          alto_cm: e ? (e.alto_cm || null) : null,
+          ancho_cm: e ? (e.ancho_cm || null) : null,
+          profundidad_cm: e ? (e.profundidad_cm || null) : null,
+          categoria_tiendanube: e ? (e.categoria_tiendanube || null) : null,
+        };
+      });
       await fetch("/.netlify/functions/history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -793,6 +994,23 @@ export default function ProductClassifier() {
                 <option value="SERVICIO" style={{ background: C.bg, color: C.text }}>Solo Servicios</option>
                 <option value="OTRO" style={{ background: C.bg, color: C.text }}>Solo Otros</option>
               </select>
+              {classified.length > 0 && (
+                <button
+                  onClick={() => {
+                    const presel = classified
+                      .filter(p => ["REPUESTO", "ACCESORIO"].includes(p._manualClass || p._class.classification))
+                      .map(p => p._id);
+                    setExportSelected(presel);
+                    setExportStep(1);
+                    setView("exportTN");
+                  }}
+                  style={{
+                    padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                    border: "1px solid #10b981", background: "rgba(16,185,129,0.1)",
+                    color: "#10b981", cursor: "pointer",
+                  }}
+                >🛒 Tienda Nube</button>
+              )}
               <Btn onClick={resetApp} color={C.danger} active>Nueva carga</Btn>
             </>
           )}
@@ -1290,6 +1508,13 @@ export default function ProductClassifier() {
                 padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
                 border: "1px solid " + C.success, background: C.success + "18", color: C.success, cursor: "pointer",
               }}>📥 Descargar CSV</button>
+              {historyProducts.some(p => p._enriched) && (
+                <button onClick={() => exportHistoryTiendaNubeCSV(historyProducts)} style={{
+                  padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                  border: "1px solid #10b981", background: "rgba(16,185,129,0.1)",
+                  color: "#10b981", cursor: "pointer",
+                }}>🛒 CSV Tienda Nube</button>
+              )}
               <button onClick={() => setDeleteModalId(historyDetail.id)} style={{
                 padding: "7px 14px", borderRadius: 8, fontSize: 12,
                 border: "1px solid " + C.danger + "40", background: "transparent", color: C.danger, cursor: "pointer",
@@ -1476,6 +1701,214 @@ export default function ProductClassifier() {
           </div>
         )}
       </div>
+
+      {/* ── Vista: Exportar a Tienda Nube ── */}
+      {view === "exportTN" && !loading && (
+        <div className="fade-in" style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 0" }}>
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>🛒 Exportar a Tienda Nube</div>
+            <div style={{ fontSize: 13, color: C.textMuted }}>Generá el CSV listo para importar en tu tienda</div>
+          </div>
+
+          {/* Stepper */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 28, alignItems: "center" }}>
+            {[
+              { n: 1, label: "Seleccionar" },
+              { n: 2, label: "Enriquecer con IA" },
+              { n: 3, label: "Descargar CSV" },
+            ].map((s, i) => (
+              <React.Fragment key={s.n}>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "8px 14px",
+                  borderRadius: 8, fontSize: 13, fontWeight: exportStep === s.n ? 600 : 400,
+                  background: exportStep === s.n ? C.accentGlow : "transparent",
+                  border: "1px solid " + (exportStep === s.n ? C.accent : C.border),
+                  color: exportStep >= s.n ? (exportStep === s.n ? C.accent : C.text) : C.textDim,
+                }}>
+                  <span style={{
+                    width: 20, height: 20, borderRadius: "50%", display: "flex",
+                    alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
+                    background: exportStep > s.n ? C.success : exportStep === s.n ? C.accent : C.card,
+                    color: "#fff",
+                  }}>{exportStep > s.n ? "✓" : s.n}</span>
+                  {s.label}
+                </div>
+                {i < 2 && <div style={{ flex: 1, height: 1, background: C.border }} />}
+              </React.Fragment>
+            ))}
+          </div>
+
+          {/* PASO 1: Seleccionar */}
+          {exportStep === 1 && (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>
+                  {exportSelected.length} de {classified.length} productos seleccionados
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => setExportSelected(classified.map(p => p._id))} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid " + C.border, background: "transparent", color: C.textMuted, fontSize: 12, cursor: "pointer" }}>Seleccionar todos</button>
+                  <button onClick={() => setExportSelected(classified.filter(p => ["REPUESTO", "ACCESORIO"].includes(p._manualClass || p._class.classification)).map(p => p._id))} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid " + C.accent, background: C.accentGlow, color: C.accent, fontSize: 12, cursor: "pointer" }}>Solo Repuestos y Accesorios</button>
+                  <button onClick={() => setExportSelected([])} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid " + C.border, background: "transparent", color: C.textMuted, fontSize: 12, cursor: "pointer" }}>Ninguno</button>
+                </div>
+              </div>
+              <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid " + C.border, maxHeight: 480, overflowY: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead style={{ position: "sticky", top: 0 }}>
+                    <tr style={{ background: C.surface }}>
+                      <th style={{ padding: "10px 14px", width: 40 }}>
+                        <input type="checkbox"
+                          checked={exportSelected.length === classified.length && classified.length > 0}
+                          onChange={e => setExportSelected(e.target.checked ? classified.map(p => p._id) : [])}
+                        />
+                      </th>
+                      {["Producto", "Clasificación", "Categoría"].map(h => (
+                        <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 600, color: C.textMuted, borderBottom: "1px solid " + C.border, fontSize: 11, textTransform: "uppercase" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classified.map((p, i) => {
+                      const cls = p._manualClass || p._class.classification;
+                      const cfg = CLS[cls] || CLS.OTRO;
+                      const selected = exportSelected.includes(p._id);
+                      return (
+                        <tr key={p._id}
+                          onClick={() => setExportSelected(prev => prev.includes(p._id) ? prev.filter(id => id !== p._id) : [...prev, p._id])}
+                          style={{ background: selected ? C.accentGlow : i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)", cursor: "pointer" }}
+                          onMouseEnter={e => e.currentTarget.style.background = selected ? C.accentGlow : C.surfaceHover}
+                          onMouseLeave={e => e.currentTarget.style.background = selected ? C.accentGlow : i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)"}
+                        >
+                          <td style={{ padding: "8px 14px", borderBottom: "1px solid " + C.border }}>
+                            <input type="checkbox" checked={selected} onChange={() => {}} onClick={e => e.stopPropagation()} />
+                          </td>
+                          <td style={{ padding: "8px 14px", borderBottom: "1px solid " + C.border }}>
+                            <div style={{ fontWeight: 500, fontSize: 13 }}>{p.PRODUCTO || "—"}</div>
+                            <div style={{ fontSize: 11, color: C.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{p.CODIGO}</div>
+                          </td>
+                          <td style={{ padding: "8px 14px", borderBottom: "1px solid " + C.border }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: cfg.glow, color: cfg.color }}>
+                              {cfg.icon} {cfg.label}
+                            </span>
+                          </td>
+                          <td style={{ padding: "8px 14px", borderBottom: "1px solid " + C.border, color: C.textMuted, fontSize: 12 }}>
+                            {p._categoria ? `${p._categoria}${p._subcategoria ? " > " + p._subcategoria : ""}` : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+                <button onClick={() => setView("dashboard")} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid " + C.border, background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+                <button
+                  onClick={() => setExportStep(2)}
+                  disabled={exportSelected.length === 0}
+                  style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: exportSelected.length > 0 ? C.accent : C.card, color: "#fff", fontSize: 13, fontWeight: 600, cursor: exportSelected.length > 0 ? "pointer" : "default" }}
+                >Siguiente → ({exportSelected.length} productos)</button>
+              </div>
+            </div>
+          )}
+
+          {/* PASO 2: Enriquecer con IA */}
+          {exportStep === 2 && (
+            <div>
+              <div style={{ background: C.surface, borderRadius: 14, border: "1px solid " + C.border, padding: 24, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>🤖 Enriquecer con IA</div>
+                <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.6, marginBottom: 20 }}>
+                  La IA va a generar para cada producto: nombre normalizado, descripción HTML, tags SEO, marca, peso y dimensiones estimadas, y categoría para Tienda Nube.<br />
+                  <strong style={{ color: C.text }}>{exportSelected.length} productos seleccionados.</strong> Procesamiento en lotes de 15 (~3s entre lotes).
+                </div>
+                {!enrichLoading && enrichedCount === 0 && (
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button
+                      onClick={() => {
+                        const sel = classified.filter(p => exportSelected.includes(p._id));
+                        runEnrich(sel);
+                      }}
+                      style={{ padding: "11px 24px", borderRadius: 10, border: "none", background: "linear-gradient(135deg," + C.accent + "," + C.repuesto + ")", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                    >🚀 Enriquecer con IA</button>
+                    <button
+                      onClick={() => setExportStep(3)}
+                      style={{ padding: "11px 20px", borderRadius: 10, border: "1px solid " + C.border, background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer" }}
+                    >Saltar → exportar sin IA</button>
+                  </div>
+                )}
+                {enrichLoading && (
+                  <div>
+                    <div style={{ fontSize: 13, color: C.accent, marginBottom: 8 }}>{enrichStatus}</div>
+                    <div style={{ height: 6, background: C.card, borderRadius: 3, overflow: "hidden", marginBottom: 12 }}>
+                      <div style={{ width: (enrichedCount / Math.max(exportSelected.length, 1) * 100) + "%", height: "100%", borderRadius: 3, transition: "width 0.5s", background: "linear-gradient(90deg," + C.accent + "," + C.success + ")" }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: C.textDim, marginBottom: 12 }}>{enrichedCount} de {exportSelected.length} productos · ~{Math.round((exportSelected.length - enrichedCount) / 15 * 4)}s restantes</div>
+                    <button onClick={() => { enrichAbort.current = true; }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid " + C.danger, background: "transparent", color: C.danger, fontSize: 12, cursor: "pointer" }}>⏹ Parar</button>
+                  </div>
+                )}
+                {!enrichLoading && enrichedCount > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ color: C.success, fontSize: 13, fontWeight: 600 }}>✅ {enrichedCount} productos enriquecidos</span>
+                    <button onClick={() => setExportStep(3)} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Ver CSV →</button>
+                  </div>
+                )}
+              </div>
+              <button onClick={() => setExportStep(1)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid " + C.border, background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer" }}>← Volver</button>
+            </div>
+          )}
+
+          {/* PASO 3: Descargar */}
+          {exportStep === 3 && (
+            <div>
+              <div style={{ background: C.surface, borderRadius: 14, border: "1px solid " + C.border, padding: 24, marginBottom: 20 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>✅ CSV listo para importar</div>
+                <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 20 }}>
+                  {exportSelected.length} productos · {classified.filter(p => exportSelected.includes(p._id) && p._enriched).length} enriquecidos con IA
+                </div>
+                {/* Preview primeras 3 filas */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, color: C.textDim, marginBottom: 8 }}>Preview (primeras 3 filas):</div>
+                  <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid " + C.border }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ background: C.card }}>
+                          {["URL", "Nombre", "Categoría", "Precio", "SKU", "Mostrar"].map(h => (
+                            <th key={h} style={{ padding: "6px 10px", textAlign: "left", color: C.textMuted, whiteSpace: "nowrap", fontWeight: 600 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {classified.filter(p => exportSelected.includes(p._id)).slice(0, 3).map((p, i) => {
+                          const e = p._enriched || {};
+                          const precio = parseFloat((p.PRECIO || 0).toString().replace(",", ".")) || 0;
+                          return (
+                            <tr key={i} style={{ borderTop: "1px solid " + C.border }}>
+                              <td style={{ padding: "6px 10px", color: C.textDim, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.slug || slugify(p.PRODUCTO || "")}</td>
+                              <td style={{ padding: "6px 10px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.nombre_limpio || p.PRODUCTO}</td>
+                              <td style={{ padding: "6px 10px", color: C.textMuted, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.categoria_tiendanube || buildCategoriaTN(p)}</td>
+                              <td style={{ padding: "6px 10px", color: C.success }}>{precio > 0 ? "$" + precio.toLocaleString("es-AR") : "—"}</td>
+                              <td style={{ padding: "6px 10px", color: C.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{p.CODIGO}</td>
+                              <td style={{ padding: "6px 10px" }}><span style={{ color: precio > 0 ? C.success : C.danger, fontWeight: 600 }}>{precio > 0 ? "SI" : "NO"}</span></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => exportTiendaNubeCSV(classified.filter(p => exportSelected.includes(p._id)))}
+                    style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: C.success, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+                  >📥 Descargar CSV para Tienda Nube</button>
+                </div>
+                <div style={{ marginTop: 16, padding: "12px 16px", borderRadius: 8, background: C.accentGlow, border: "1px solid " + C.accent + "40", fontSize: 12, color: C.accent }}>
+                  📌 En Tienda Nube: <strong>Productos → Importar → seleccionar CSV</strong>. Las imágenes se agregan por separado desde el producto.
+                </div>
+              </div>
+              <button onClick={() => setExportStep(2)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid " + C.border, background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer" }}>← Volver</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Modal: Categoría ── */}
       {catModal && (

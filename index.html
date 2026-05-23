@@ -3,11 +3,67 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#0a0c10" />
   <meta name="description" content="Clasificador inteligente de productos con IA" />
   <title>Clasificador de Productos</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
-    body { margin: 0; background: #0a0c10; }
+    :root {
+      --color-background-primary:   #14161f;
+      --color-background-secondary: #1c2030;
+      --color-background-tertiary:  #0e1018;
+      --color-border-tertiary:      #252b3b;
+      --color-border-secondary:     #333c52;
+      --color-text-primary:         #e2e8f0;
+      --color-text-secondary:       #8892a6;
+      --color-text-tertiary:        #515d74;
+      --color-text-info:            #3b82f6;
+      --color-background-info:      rgba(59,130,246,0.1);
+      --color-text-success:         #10b981;
+      --color-background-success:   rgba(16,185,129,0.1);
+      --color-text-danger:          #f87171;
+      --color-background-danger:    rgba(248,113,113,0.1);
+      --color-text-warning:         #fbbf24;
+      --color-background-warning:   rgba(251,191,36,0.1);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --color-background-primary:   #ffffff;
+        --color-background-secondary: #f4f4f2;
+        --color-background-tertiary:  #ebebea;
+        --color-border-tertiary:      #e0e0de;
+        --color-border-secondary:     #cecece;
+        --color-text-primary:         #18181a;
+        --color-text-secondary:       #52525a;
+        --color-text-tertiary:        #8a8a94;
+        --color-text-info:            #2563eb;
+        --color-background-info:      rgba(37,99,235,0.07);
+        --color-text-success:         #059669;
+        --color-background-success:   rgba(5,150,105,0.07);
+        --color-text-danger:          #dc2626;
+        --color-background-danger:    rgba(220,38,38,0.07);
+        --color-text-warning:         #d97706;
+        --color-background-warning:   rgba(217,119,6,0.07);
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      background: var(--color-background-tertiary);
+      color: var(--color-text-primary);
+      -webkit-font-smoothing: antialiased;
+    }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--color-border-secondary); border-radius: 3px; }
+    input, textarea, select, button { font-family: inherit; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .fade-in { animation: fadeIn .25s ease forwards; }
   </style>
 </head>
 <body>
