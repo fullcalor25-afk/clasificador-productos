@@ -3,7 +3,7 @@ const fetch = require("node-fetch");
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   "Content-Type": "application/json",
 };
 
@@ -38,10 +38,35 @@ exports.handler = async function (event) {
       if (!anaRes.ok) return { statusCode: anaRes.status, headers: CORS, body: JSON.stringify(analysis) };
       return { statusCode: 200, headers: CORS, body: JSON.stringify({ ...analysis[0], products }) };
     }
-    const res = await fetch(SUPABASE_URL + "/rest/v1/analyses?select=*&order=created_at.desc", { headers: h });
+
+    // Lista de análisis — soporta filtros de fecha ?from=YYYY-MM&to=YYYY-MM
+    const { from, to } = event.queryStringParameters || {};
+    let listUrl = SUPABASE_URL + "/rest/v1/analyses?select=*&order=created_at.desc";
+    if (from) listUrl += "&created_at=gte." + from + "-01T00:00:00Z";
+    if (to)   listUrl += "&created_at=lte." + to   + "-31T23:59:59Z";
+
+    const res = await fetch(listUrl, { headers: h });
     const data = await res.json();
     if (!res.ok) return { statusCode: res.status, headers: CORS, body: JSON.stringify(data) };
-    return { statusCode: 200, headers: CORS, body: JSON.stringify(data) };
+
+    // Anotar has_enriched: verificar si algún producto del análisis tiene slug (columna TN)
+    // Para no hacer N+1 queries, chequeamos solo el primer producto con slug
+    const enrichedCheck = await Promise.all(
+      data.map(async (a) => {
+        try {
+          const r = await fetch(
+            SUPABASE_URL + "/rest/v1/analysis_products?analysis_id=eq." + a.id + "&slug=not.is.null&select=id&limit=1",
+            { headers: h }
+          );
+          const rows = await r.json();
+          return { ...a, has_enriched: Array.isArray(rows) && rows.length > 0 };
+        } catch (_) {
+          return { ...a, has_enriched: false };
+        }
+      })
+    );
+
+    return { statusCode: 200, headers: CORS, body: JSON.stringify(enrichedCheck) };
   }
 
   // POST crear análisis
@@ -117,6 +142,40 @@ exports.handler = async function (event) {
       method: "DELETE",
       headers: { ...h, "Prefer": "return=minimal" },
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { statusCode: res.status, headers: CORS, body: JSON.stringify(err) };
+    }
+    return { statusCode: 200, headers: CORS, body: JSON.stringify({ success: true }) };
+  }
+
+  // PATCH: actualizar clasificación de un producto individual del historial
+  if (event.httpMethod === "PATCH") {
+    if (!id) return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Falta id del análisis" }) };
+    let body;
+    try { body = JSON.parse(event.body); } catch (e) {
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Request inválido" }) };
+    }
+    const { productId, clasificacion, fuente, confianza } = body;
+    if (!productId) return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Falta productId" }) };
+
+    const patch = {};
+    if (clasificacion !== undefined) patch.clasificacion = clasificacion;
+    if (fuente       !== undefined) patch.fuente        = fuente;
+    if (confianza    !== undefined) patch.confianza      = confianza;
+
+    if (Object.keys(patch).length === 0) {
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "No hay campos para actualizar" }) };
+    }
+
+    const res = await fetch(
+      SUPABASE_URL + "/rest/v1/analysis_products?id=eq." + productId + "&analysis_id=eq." + id,
+      {
+        method: "PATCH",
+        headers: { ...h, "Prefer": "return=minimal" },
+        body: JSON.stringify(patch),
+      }
+    );
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       return { statusCode: res.status, headers: CORS, body: JSON.stringify(err) };
