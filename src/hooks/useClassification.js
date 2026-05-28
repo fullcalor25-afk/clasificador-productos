@@ -14,7 +14,7 @@ export default function useClassification() {
   const loadRules = async () => {
     setLoadingRules(true);
     try {
-      const res = await fetchWithTimeout("/.netlify/functions/rules");
+      const res = await fetchWithTimeout("/api/rules");
       if (!res.ok) throw new Error("Rules load failed");
       const data = await res.json();
       if (Array.isArray(data)) {
@@ -35,7 +35,7 @@ export default function useClassification() {
 
   const saveRule = async (ruleData) => {
     try {
-      const res = await fetchWithTimeout("/.netlify/functions/rules", {
+      const res = await fetchWithTimeout("/api/rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(ruleData),
@@ -51,7 +51,7 @@ export default function useClassification() {
 
   const deleteRule = async (id) => {
     try {
-      const res = await fetchWithTimeout(`/.netlify/functions/rules?id=${id}`, {
+      const res = await fetchWithTimeout(`/api/rules?id=${id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete rule");
@@ -66,7 +66,7 @@ export default function useClassification() {
   const resetRulesToDefault = async () => {
     setLoadingRules(true);
     try {
-      const res = await fetchWithTimeout("/.netlify/functions/rules", {
+      const res = await fetchWithTimeout("/api/rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reset: true, defaults: DEFAULT_RULES }),
@@ -169,7 +169,7 @@ export default function useClassification() {
           headers["x-groq-key"] = groqApiKeyOverride;
         }
 
-        const res = await fetchWithTimeout("/.netlify/functions/classify", {
+        const res = await fetchWithTimeout("/api/classify", {
           method: "POST",
           headers,
           body: JSON.stringify({ products: batch, categories: categories || [] }),

@@ -184,7 +184,7 @@ export default function Sidebar({ view, setView, hasActiveSession, historyCount 
           background: C.surface2,
         }}
       >
-        v2.1 · netlify.app
+        v2.1 · vercel.app
       </div>
     </div>
   );

@@ -93,7 +93,7 @@ export default function ExportView({
       if (i > 0) await new Promise(r => setTimeout(r, 3000));
 
       try {
-        const res = await fetchWithTimeout("/.netlify/functions/enrich", {
+        const res = await fetchWithTimeout("/api/enrich", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ products: batch }),

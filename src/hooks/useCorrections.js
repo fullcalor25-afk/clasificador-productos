@@ -13,7 +13,7 @@ export default function useCorrections() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchWithTimeout("/.netlify/functions/corrections");
+      const res = await fetchWithTimeout("/api/corrections");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (Array.isArray(data)) {
@@ -67,7 +67,7 @@ export default function useCorrections() {
     });
 
     try {
-      const res = await fetchWithTimeout("/.netlify/functions/corrections", {
+      const res = await fetchWithTimeout("/api/corrections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -108,8 +108,8 @@ export default function useCorrections() {
 
     try {
       const url = id 
-        ? `/.netlify/functions/corrections?id=${id}`
-        : `/.netlify/functions/corrections?codigo=${encodeURIComponent(codigo)}`;
+        ? `/api/corrections?id=${id}`
+        : `/api/corrections?codigo=${encodeURIComponent(codigo)}`;
       const res = await fetchWithTimeout(url, { method: "DELETE" });
       if (!res.ok) throw new Error("Error al eliminar");
       loadCorrections();
@@ -122,7 +122,7 @@ export default function useCorrections() {
   const importBulkCorrections = async (csvRows) => {
     setLoading(true);
     try {
-      const res = await fetchWithTimeout("/.netlify/functions/corrections", {
+      const res = await fetchWithTimeout("/api/corrections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bulk: csvRows }),
@@ -142,7 +142,7 @@ export default function useCorrections() {
   const clearAllCorrections = async () => {
     setLoading(true);
     try {
-      const res = await fetchWithTimeout("/.netlify/functions/corrections?all=true", { method: "DELETE" });
+      const res = await fetchWithTimeout("/api/corrections?all=true", { method: "DELETE" });
       if (!res.ok) throw new Error("Error al limpiar");
       setCorrections({});
       setCorrectionsList([]);

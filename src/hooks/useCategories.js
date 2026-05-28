@@ -11,7 +11,7 @@ export default function useCategories() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchWithTimeout("/.netlify/functions/categories");
+      const res = await fetchWithTimeout("/api/categories");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (Array.isArray(data)) {
@@ -60,25 +60,25 @@ export default function useCategories() {
     try {
       let res;
       if (mode === "new-cat") {
-        res = await fetchWithTimeout("/.netlify/functions/categories", {
+        res = await fetchWithTimeout("/api/categories", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ nombre: name, color: data.color, icono: data.icono, orden: data.orden || 0 }),
         });
       } else if (mode === "edit-cat") {
-        res = await fetchWithTimeout(`/.netlify/functions/categories?id=${data.id}&type=category`, {
+        res = await fetchWithTimeout(`/api/categories?id=${data.id}&type=category`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ nombre: name, color: data.color, icono: data.icono, orden: data.orden || 0 }),
         });
       } else if (mode === "new-sub") {
-        res = await fetchWithTimeout("/.netlify/functions/categories", {
+        res = await fetchWithTimeout("/api/categories", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type: "subcategory", category_id: categoryId, nombre: name, keywords: data.keywords, descripcion: data.descripcion, orden: data.orden || 0 }),
         });
       } else if (mode === "edit-sub") {
-        res = await fetchWithTimeout(`/.netlify/functions/categories?id=${data.id}&type=subcategory`, {
+        res = await fetchWithTimeout(`/api/categories?id=${data.id}&type=subcategory`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ nombre: name, keywords: data.keywords, descripcion: data.descripcion, orden: data.orden || 0 }),
@@ -103,7 +103,7 @@ export default function useCategories() {
   const deleteCategoryItem = async (id, type) => {
     setLoading(true);
     try {
-      const res = await fetchWithTimeout(`/.netlify/functions/categories?id=${id}&type=${type}`, {
+      const res = await fetchWithTimeout(`/api/categories?id=${id}&type=${type}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Error en servidor al eliminar");

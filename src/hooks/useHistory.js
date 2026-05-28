@@ -11,7 +11,7 @@ export default function useHistory() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchWithTimeout("/.netlify/functions/history");
+      const res = await fetchWithTimeout("/api/history");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setHistoryList(Array.isArray(data) ? data : []);
@@ -27,7 +27,7 @@ export default function useHistory() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchWithTimeout(`/.netlify/functions/history?id=${id}`);
+      const res = await fetchWithTimeout(`/api/history?id=${id}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       
@@ -99,7 +99,7 @@ export default function useHistory() {
         };
       });
       
-      const res = await fetchWithTimeout("/.netlify/functions/history", {
+      const res = await fetchWithTimeout("/api/history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nombre, productos }),
@@ -119,7 +119,7 @@ export default function useHistory() {
   const deleteAnalysis = async (id) => {
     setLoading(true);
     try {
-      const res = await fetchWithTimeout(`/.netlify/functions/history?id=${id}`, {
+      const res = await fetchWithTimeout(`/api/history?id=${id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Error al eliminar");
@@ -140,7 +140,7 @@ export default function useHistory() {
     if (!nuevoNombre?.trim()) return { success: false, error: "Nombre inválido." };
     setLoading(true);
     try {
-      const res = await fetchWithTimeout(`/.netlify/functions/history?id=${id}`, {
+      const res = await fetchWithTimeout(`/api/history?id=${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nombre: nuevoNombre }),
@@ -161,7 +161,7 @@ export default function useHistory() {
 
   const updateHistoryProduct = async (prodId, patchData) => {
     try {
-      const res = await fetchWithTimeout(`/.netlify/functions/history?id=${historyDetail.id}`, {
+      const res = await fetchWithTimeout(`/api/history?id=${historyDetail.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId: prodId, ...patchData }),
