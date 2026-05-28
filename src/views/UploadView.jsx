@@ -1,12 +1,28 @@
 import React from "react";
+import * as XLSX from "xlsx";
 import { C } from "../constants";
 import { parseTabular } from "../utils";
+
+function parseXLSX(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      resolve(rows);
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
 
 export default function UploadView({ onProductsLoaded, hasActiveSession, correctionsCount = 0 }) {
   const [pasteData, setPasteData] = React.useState("");
   const [previewProducts, setPreviewProducts] = React.useState([]);
   const [showConfirmOverwrite, setShowConfirmOverwrite] = React.useState(false);
   const fileInputRef = React.useRef(null);
+  const pendingProductsRef = React.useRef([]);
 
   // Parse paste data dynamically for preview
   React.useEffect(() => {
@@ -20,8 +36,8 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
 
   const handleProductsConfirm = (loadedProducts) => {
     if (loadedProducts.length === 0) return;
-    
     if (hasActiveSession) {
+      pendingProductsRef.current = loadedProducts;
       setShowConfirmOverwrite(true);
     } else {
       onProductsLoaded(loadedProducts);
@@ -37,19 +53,29 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
     }
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const parsed = parseTabular(ev.target.result);
-      if (parsed.length > 0) {
-        handleProductsConfirm(parsed);
+
+    if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+      const data = await parseXLSX(file);
+      if (data.length > 0) {
+        handleProductsConfirm(data);
       } else {
-        alert("El archivo CSV no contiene columnas válidas.");
+        alert("El archivo Excel no contiene filas válidas.");
       }
-    };
-    reader.readAsText(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const parsed = parseTabular(ev.target.result);
+        if (parsed.length > 0) {
+          handleProductsConfirm(parsed);
+        } else {
+          alert("El archivo no contiene columnas válidas.");
+        }
+      };
+      reader.readAsText(file);
+    }
   };
 
   return (
@@ -177,16 +203,16 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
         <input
           ref={fileInputRef}
           type="file"
-          accept=".csv,.tsv,.txt"
+          accept=".csv,.tsv,.txt,.xlsx,.xls"
           onChange={handleFileUpload}
           style={{ display: "none" }}
         />
         <div style={{ fontSize: 32, marginBottom: 8 }}>📁</div>
         <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>
-          Seleccionar archivo CSV o TSV
+          Subir CSV, TSV o Excel (.xlsx)
         </div>
         <div style={{ fontSize: 11, color: C.textMuted }}>
-          Delimitados por coma, punto y coma, o tabulación
+          Delimitados por coma, punto y coma, tabulación — o planilla Excel
         </div>
       </div>
 
@@ -232,7 +258,7 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
               <button
                 onClick={() => {
                   setShowConfirmOverwrite(false);
-                  onProductsLoaded(parseTabular(pasteData) || []);
+                  onProductsLoaded(pendingProductsRef.current);
                 }}
                 style={{
                   padding: "8px 18px",
