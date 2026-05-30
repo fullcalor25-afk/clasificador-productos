@@ -267,66 +267,98 @@ export async function fetchWithTimeout(url, options = {}, timeout = 30000) {
   }
 }
 
-export function exportTiendaNubeCSV(productos) {
+export function exportTiendaNubeCSV(productos, tnCategories = []) {
+  const SEP = ";";
+
   const HEADERS = [
-    '"Identificador de URL"', "Nombre", "Categorías", "Precio",
-    '"Precio promocional"', '"Peso (kg)"', '"Alto (cm)"', '"Ancho (cm)"',
-    '"Profundidad (cm)"', "Stock", "SKU", '"Código de barras"',
-    '"Mostrar en tienda"', '"Envío sin cargo"', "Descripción", "Tags",
-    '"Título para SEO"', '"Descripción para SEO"', "Marca",
-    '"Producto Físico"', '"MPN (Número de pieza del fabricante)"',
-    "Sexo", '"Rango de edad"', "Costo"
+    '"Identificador de URL"',
+    "Nombre",
+    "Categorías",
+    "Precio",
+    '"Precio promocional"',
+    '"Peso (kg)"',
+    '"Alto (cm)"',
+    '"Ancho (cm)"',
+    '"Profundidad (cm)"',
+    "Stock",
+    "SKU",
+    '"Código de barras"',
+    '"Mostrar en tienda"',
+    '"Envío sin cargo"',
+    "Descripción",
+    "Tags",
+    '"Título para SEO"',
+    '"Descripción para SEO"',
+    "Marca",
+    '"Producto Físico"',
+    '"MPN (Número de pieza del fabricante)"',
+    "Sexo",
+    '"Rango de edad"',
+    "Costo",
   ];
 
-  // Retrieve customized defaults from localStorage if set (Bug 1 & SettingsView)
-  const defaultStock = localStorage.getItem("tn_default_stock") || "1";
-  const defaultShowNoPrice = localStorage.getItem("tn_show_no_price") || "NO";
-  const skuPrefix = localStorage.getItem("tn_sku_prefix") || "";
+  // Envuelve el campo en comillas y escapa comillas internas
+  function field(value) {
+    if (value === null || value === undefined) return "";
+    const str = String(value).trim();
+    if (!str) return "";
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+
+  // Campo numérico sin comillas, con coma decimal
+  function num(value) {
+    if (!value && value !== 0) return "";
+    const n = parseFloat(String(value).replace(",", "."));
+    return isNaN(n) ? "" : n.toFixed(2).replace(".", ",");
+  }
 
   const rows = productos.map(p => {
     const e = p._enriched || {};
-    const precio = getProductPrice(p);
-    const mostrar = precio > 0 ? "SI" : defaultShowNoPrice;
-    const slug = e.slug || slugify(p.PRODUCTO || p.producto || "");
-    const nombre = e.nombre_limpio || p.PRODUCTO || p.producto || "";
-    const categoria = e.categoria_tiendanube || buildCategoriaTN(p);
-    const tags = Array.isArray(e.tags) ? e.tags.join(", ") : (e.tags || "");
-    const desc = e.descripcion_html || "";
-    const seoT = e.seo_titulo || nombre.substring(0, 70);
-    const seoD = e.seo_descripcion || "";
-    const marca = e.marca || "";
-    const sku = p.CODIGO || p.codigo || "";
-    const finalSku = sku ? `${skuPrefix}${sku}` : "";
-    const mpn = p["CODIGO EXTERNO"] || p.codigo_externo || "";
+
+    const precioRaw = p.PRECIO || p.precio || p.Precio || p.PRICE || 0;
+    const precio = parseFloat(String(precioRaw).replace(",", ".")) || 0;
+    const mostrar = precio > 0 ? "SI" : "NO";
+
+    const slug      = e.slug              || slugify(p.PRODUCTO || p.producto || "");
+    const nombre    = e.nombre_limpio     || p.PRODUCTO || p.producto || "";
+    const categoria = e.categoria_tiendanube || buildCategoriaTN(p, tnCategories);
+    const tags      = Array.isArray(e.tags) ? e.tags.join(", ") : (e.tags || "");
+    const desc      = e.descripcion_html  || "";
+    const seoT      = e.seo_titulo        || nombre.substring(0, 70);
+    const seoD      = e.seo_descripcion   || "";
+    const marca     = e.marca             || "";
+    const mpn       = p["CODIGO EXTERNO"] || p.codigo_externo || "";
 
     return [
-      slug,
-      `"${nombre.replace(/"/g, '""')}"`,
-      `"${categoria}"`,
-      precio > 0 ? precio.toFixed(2).replace(".", ",") : "",
-      "",
-      e.peso_kg !== undefined && e.peso_kg !== null ? e.peso_kg : "", 
-      e.alto_cm !== undefined && e.alto_cm !== null ? e.alto_cm : "", 
-      e.ancho_cm !== undefined && e.ancho_cm !== null ? e.ancho_cm : "", 
-      e.profundidad_cm !== undefined && e.profundidad_cm !== null ? e.profundidad_cm : "",
-      defaultStock,
-      finalSku,
-      "",
+      field(slug),
+      field(nombre),
+      field(categoria),
+      num(precio),
+      "",                  // Precio promocional
+      num(e.peso_kg),
+      num(e.alto_cm),
+      num(e.ancho_cm),
+      num(e.profundidad_cm),
+      "1",                 // Stock
+      field(p.CODIGO || p.codigo || ""),
+      "",                  // Código de barras
       mostrar,
-      "NO",
-      `"${desc.replace(/"/g, '""')}"`,
-      `"${tags}"`,
-      `"${seoT.replace(/"/g, '""')}"`,
-      `"${seoD.replace(/"/g, '""')}"`,
-      marca,
-      "SI",
-      mpn,
-      "", "", ""
-    ].join(";");
+      "NO",                // Envío sin cargo
+      field(desc),
+      field(tags),
+      field(seoT),
+      field(seoD),
+      field(marca),
+      "SI",                // Producto Físico
+      field(mpn),
+      "",                  // Sexo
+      "",                  // Rango de edad
+      "",                  // Costo
+    ].join(SEP);
   });
 
-  const csv = [HEADERS.join(";"), ...rows].join("\n");
-  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const csv = "\uFEFF" + HEADERS.join(SEP) + "\n" + rows.join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "tiendanube_repuestos.csv";
@@ -341,17 +373,13 @@ export function exportHistoryTiendaNubeCSV(histProductos) {
     return;
   }
   const mapped = enriched.map(p => ({
-    codigo: p.codigo || "",
-    CODIGO: p.codigo || "",
-    PRODUCTO: p.producto || "",
-    producto: p.producto || "",
-    rubro: p.rubro || "",
-    RUBRO: p.rubro || "",
-    "SUB RUBRO": p.sub_rubro || "",
-    sub_rubro: p.sub_rubro || "",
-    _categoria: null,
+    CODIGO:        p.codigo    || "",
+    PRODUCTO:      p.producto  || "",
+    RUBRO:         p.rubro     || "",
+    "SUB RUBRO":   p.sub_rubro || "",
+    _categoria:    null,
     _subcategoria: null,
-    _enriched: p._enriched,
+    _enriched:     p._enriched,
   }));
   exportTiendaNubeCSV(mapped);
 }
