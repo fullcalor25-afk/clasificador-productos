@@ -162,25 +162,35 @@ export function classifyProduct(product, rules = []) {
   return { classification, confidence: Math.min(confidence, 100), reasons, score };
 }
 
+function cleanField(value) {
+  if (value === null || value === undefined) return "";
+  const str = String(value).trim();
+  const clean = str.replace(/^"+|"+$/g, "");
+  if (clean.includes(";") || clean.includes("\n")) {
+    return '"' + clean.replace(/"/g, '""') + '"';
+  }
+  return clean;
+}
+
 export function exportCSV(toExport, CLS) {
   if (toExport.length === 0) return alert("No hay productos para exportar.");
 
   const headers = ["CODIGO", "PRODUCTO", "RUBRO", "SUB RUBRO", "PROVEEDOR", "CLASIFICACION", "CONFIANZA", "FUENTE", "RAZONES", "CATEGORIA", "SUBCATEGORIA", "TIPO"];
   const rows = toExport.map(p => [
-    p.CODIGO || "",
-    '"' + (p.PRODUCTO || "").replace(/"/g, '""') + '"',
-    p.RUBRO || "",
-    p["SUB RUBRO"] || "",
-    '"' + (p.PROVEEDOR || "").replace(/"/g, '""') + '"',
-    p._manualClass || p._class.classification,
+    cleanField(p.CODIGO),
+    cleanField(p.PRODUCTO),
+    cleanField(p.RUBRO),
+    cleanField(p["SUB RUBRO"]),
+    cleanField(p.PROVEEDOR),
+    cleanField(p._manualClass || p._class.classification),
     (p._class.confidence || 0) + "%",
-    p._manualClass ? "APRENDIDO" : (p._source || "REGLAS"),
-    '"' + (p._class.reasons || []).join("; ").replace(/"/g, '""') + '"',
-    p._categoria || "",
-    p._subcategoria || "",
-    p._tipo || "",
+    cleanField(p._manualClass ? "APRENDIDO" : (p._source || "REGLAS")),
+    cleanField((p._class.reasons || []).join("; ")),
+    cleanField(p._categoria),
+    cleanField(p._subcategoria),
+    cleanField(p._tipo),
   ]);
-  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+  const csv = [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
   const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -190,7 +200,7 @@ export function exportCSV(toExport, CLS) {
 
 export function exportHistoryCSV(productos, includeTN = false) {
   if (!productos || productos.length === 0) return;
-  
+
   let headers;
   let rows;
 
@@ -199,41 +209,41 @@ export function exportHistoryCSV(productos, includeTN = false) {
     rows = productos.map(p => {
       const e = p._enriched || {};
       return [
-        p.codigo || "",
-        '"' + (p.producto || "").replace(/"/g, '""') + '"',
-        p.rubro || "",
-        p.sub_rubro || "",
-        p.clasificacion || "",
-        p.fuente || "",
+        cleanField(p.codigo),
+        cleanField(p.producto),
+        cleanField(p.rubro),
+        cleanField(p.sub_rubro),
+        cleanField(p.clasificacion),
+        cleanField(p.fuente),
         (p.confianza || 0) + "%",
-        e.slug || "",
-        '"' + (e.nombre_limpio || "").replace(/"/g, '""') + '"',
-        e.marca || "",
-        '"' + (e.descripcion_html || "").replace(/"/g, '""') + '"',
-        '"' + (Array.isArray(e.tags) ? e.tags.join(",") : (e.tags || "")) + '"',
-        '"' + (e.seo_titulo || "").replace(/"/g, '""') + '"',
-        '"' + (e.seo_descripcion || "").replace(/"/g, '""') + '"',
-        e.peso_kg || "",
-        e.alto_cm || "",
-        e.ancho_cm || "",
-        e.profundidad_cm || "",
-        e.categoria_tiendanube || ""
+        cleanField(e.slug),
+        cleanField(e.nombre_limpio),
+        cleanField(e.marca),
+        cleanField(e.descripcion_html),
+        cleanField(Array.isArray(e.tags) ? e.tags.join(", ") : (e.tags || "")),
+        cleanField(e.seo_titulo),
+        cleanField(e.seo_descripcion),
+        cleanField(e.peso_kg),
+        cleanField(e.alto_cm),
+        cleanField(e.ancho_cm),
+        cleanField(e.profundidad_cm),
+        cleanField(e.categoria_tiendanube),
       ];
     });
   } else {
     headers = ["CODIGO", "PRODUCTO", "RUBRO", "SUB RUBRO", "CLASIFICACION", "FUENTE", "CONFIANZA"];
     rows = productos.map(p => [
-      p.codigo || "",
-      '"' + (p.producto || "").replace(/"/g, '""') + '"',
-      p.rubro || "",
-      p.sub_rubro || "",
-      p.clasificacion || "",
-      p.fuente || "",
+      cleanField(p.codigo),
+      cleanField(p.producto),
+      cleanField(p.rubro),
+      cleanField(p.sub_rubro),
+      cleanField(p.clasificacion),
+      cleanField(p.fuente),
       (p.confianza || 0) + "%",
     ]);
   }
-  
-  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+
+  const csv = [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
   const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
