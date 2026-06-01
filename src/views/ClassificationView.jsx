@@ -6,7 +6,8 @@ export default function ClassificationView({
   rules,
   onSaveRule,
   onDeleteRule,
-  onResetRules
+  onResetRules,
+  toast = null,
 }) {
   const [activeTab, setActiveTab] = useState("REPUESTO");
   
@@ -71,14 +72,14 @@ export default function ClassificationView({
     if (res.success) {
       setNewKeyword("");
     } else {
-      alert("Error guardando regla: " + res.error);
+      toast?.error("Error guardando regla: " + res.error);
     }
   };
 
   const handleBulkKeywordsSubmit = async () => {
     if (!bulkKeywordsText.trim()) return;
     const list = bulkKeywordsText.split("\n").map(x => x.trim().toLowerCase()).filter(Boolean);
-    
+
     let addedCount = 0;
     for (const val of list) {
       if (!activeKeywords.some(k => k.valor === val)) {
@@ -92,15 +93,15 @@ export default function ClassificationView({
         addedCount++;
       }
     }
-    
+
     setBulkKeywordsText("");
     setShowBulkAdd(false);
-    alert(`Se agregaron ${addedCount} palabras clave a ${activeTab}.`);
+    toast?.success(`Se agregaron ${addedCount} palabras clave a ${activeTab}.`);
   };
 
   const handleAddPattern = async () => {
     if (!newPatternVal.trim()) return;
-    
+
     const res = await onSaveRule({
       tipo: activeTab,
       nivel: newPatternLevel,
@@ -113,7 +114,7 @@ export default function ClassificationView({
       setNewPatternVal("");
       setNewPatternWeight(30);
     } else {
-      alert("Error guardando regla: " + res.error);
+      toast?.error("Error guardando regla: " + res.error);
     }
   };
 
@@ -124,7 +125,7 @@ export default function ClassificationView({
       const rx = new RegExp(testRubroRegex, "i");
       setTestRubroMatched(rx.test(testRubroText));
     } catch (e) {
-      alert("Regex inválida");
+      toast?.error("Regex inválida. Verificá la sintaxis.");
     }
   };
 

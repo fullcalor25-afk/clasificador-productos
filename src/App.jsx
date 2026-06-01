@@ -6,6 +6,7 @@ import { exportCSV, getProductPrice } from "./utils";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import Modal from "./components/Modal";
+import { useToast, ToastContainer } from "./components/Toast";
 
 // Hooks
 import useCorrections from "./hooks/useCorrections";
@@ -31,6 +32,8 @@ import SettingsView from "./views/SettingsView";
 const SESSION_KEY = "hvac_session";
 
 export default function ProductClassifier() {
+  const toast = useToast();
+
   const [view, setView] = useState(() => {
     return localStorage.getItem("hvac_last_view") || "home";
   });
@@ -326,9 +329,9 @@ export default function ProductClassifier() {
     const res = await saveAnalysis(saveModalName, classified);
     if (res.success) {
       setSaveModalOpen(false);
-      alert("Análisis guardado con éxito.");
+      toast.success("Análisis guardado con éxito.");
     } else {
-      alert("No se pudo guardar el análisis.");
+      toast.error("No se pudo guardar el análisis. Intentá de nuevo.");
     }
   };
 
@@ -405,6 +408,7 @@ export default function ProductClassifier() {
               onProductsLoaded={handleProductsLoaded}
               hasActiveSession={classified.length > 0}
               correctionsCount={correctionsList.length}
+              toast={toast}
             />
           )}
 
@@ -442,6 +446,7 @@ export default function ProductClassifier() {
               onBulkClassify={handleBulkClassify}
               onBulkCategory={handleBulkCategory}
               rules={rules}
+              toast={toast}
             />
           )}
 
@@ -520,6 +525,7 @@ export default function ProductClassifier() {
               onClearAllCorrections={clearAllCorrections}
               onImportBulkCorrections={importBulkCorrections}
               classifiedProductsCount={classified.filter(p => p._source === "APRENDIDO").length}
+              toast={toast}
             />
           )}
 
@@ -530,6 +536,7 @@ export default function ProductClassifier() {
               onSaveCategory={saveCategory}
               onDeleteCategory={deleteCategoryItem}
               classifiedProducts={classified}
+              toast={toast}
             />
           )}
 
@@ -540,6 +547,7 @@ export default function ProductClassifier() {
               onSaveRule={saveRule}
               onDeleteRule={deleteRule}
               onResetRules={resetRulesToDefault}
+              toast={toast}
             />
           )}
 
@@ -565,7 +573,7 @@ export default function ProductClassifier() {
                 setClassified([]);
                 setStats({});
                 localStorage.removeItem(SESSION_KEY);
-                alert("Sesión descartada.");
+                toast.info("Sesión descartada.");
               }}
               onResetRules={resetRulesToDefault}
               onClearHistory={async () => {
@@ -575,6 +583,7 @@ export default function ProductClassifier() {
                 loadHistory();
               }}
               onClearCorrections={clearAllCorrections}
+              toast={toast}
             />
           )}
 
@@ -600,6 +609,9 @@ export default function ProductClassifier() {
           </div>
         </Modal>
       )}
+
+      {/* Toast notifications */}
+      <ToastContainer toasts={toast.toasts} />
 
     </div>
   );

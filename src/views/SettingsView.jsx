@@ -9,7 +9,8 @@ export default function SettingsView({
   onResetSession,
   onResetRules,
   onClearHistory,
-  onClearCorrections
+  onClearCorrections,
+  toast = null,
 }) {
   // Groq override key
   const [groqKey, setGroqKey] = useState(() => {
@@ -46,14 +47,14 @@ export default function SettingsView({
     localStorage.setItem("tn_show_no_price", showNoPrice);
     localStorage.setItem("tn_sku_prefix", skuPrefix);
 
-    alert("Ajustes guardados con éxito.");
+    toast?.success("Ajustes guardados con éxito.");
   };
 
   const handleClearCache = () => {
     if (confirm("¿Limpiar todo el caché local de navegación (no borrará la base de datos)?")) {
       localStorage.clear();
-      alert("Caché local borrado. La página se recargará.");
-      window.location.reload();
+      toast?.info("Caché local borrado. Recargando...");
+      setTimeout(() => window.location.reload(), 800);
     }
   };
 
@@ -61,14 +62,14 @@ export default function SettingsView({
     if (confirmHistoryInput !== "BORRAR HISTORIAL") return;
     onClearHistory();
     setConfirmHistoryInput("");
-    alert("Todo el historial fue eliminado de la base de datos.");
+    toast?.success("Todo el historial fue eliminado de la base de datos.");
   };
 
   const handleResetDangerousCorrections = () => {
     if (confirmCorrectionsInput !== "BORRAR APRENDIZAJE") return;
     onClearCorrections();
     setConfirmCorrectionsInput("");
-    alert("Toda la base de aprendizaje fue eliminada.");
+    toast?.success("Toda la base de aprendizaje fue eliminada.");
   };
 
   return (

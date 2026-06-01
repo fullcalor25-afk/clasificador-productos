@@ -189,7 +189,8 @@ export default function CategoriesView({
   categories,
   onSaveCategory,
   onDeleteCategory,
-  classifiedProducts = []
+  classifiedProducts = [],
+  toast = null,
 }) {
   const [collapsedCats, setCollapsedCats] = useState([]);
   // catModal stores only { mode, categoryId, initialData } — no live form state
@@ -213,20 +214,28 @@ export default function CategoriesView({
 
   const handleSaveModal = async (catModalData) => {
     const res = await onSaveCategory(catModalData);
-    if (res.success) setCatModal(null);
-    else alert(res.error);
+    if (res.success) {
+      setCatModal(null);
+      toast?.success("Categoría guardada correctamente.");
+    } else {
+      toast?.error(res.error || "Error al guardar la categoría.");
+    }
   };
 
   const handleDeleteConfirm = async () => {
     if (!deleteModal) return;
     const res = await onDeleteCategory(deleteModal.id, deleteModal.type);
-    if (res.success) setDeleteModal(null);
-    else alert(res.error);
+    if (res.success) {
+      setDeleteModal(null);
+      toast?.success("Categoría eliminada.");
+    } else {
+      toast?.error(res.error || "Error al eliminar la categoría.");
+    }
   };
 
   const handleImportSubmit = async () => {
     if (!importCsvText.trim()) return;
-    alert("Procesando importación de categorías. Las categorías nuevas se crearán en Supabase.");
+    toast?.info("Procesando importación de categorías. Las nuevas categorías se crearán en Supabase.");
     setImportModal(false);
     setImportCsvText("");
   };

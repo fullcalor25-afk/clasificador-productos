@@ -16,7 +16,8 @@ export default function TableView({
   onManualCategory,
   onBulkClassify,
   onBulkCategory,
-  rules = []
+  rules = [],
+  toast = null,
 }) {
   const [pageSize, setPageSize] = useState(50);
   const [sortBy, setSortBy] = useState("confidence");
@@ -150,7 +151,7 @@ export default function TableView({
     onBulkClassify(selectedIds, bulkClass);
     setBulkClass("");
     setSelectedIds([]);
-    alert("Clasificación aplicada en masa.");
+    toast?.success("Clasificación aplicada en masa.");
   };
 
   const handleBulkCategorySubmit = () => {
@@ -158,7 +159,7 @@ export default function TableView({
     onBulkCategory(selectedIds, bulkCat);
     setBulkCat("");
     setSelectedIds([]);
-    alert("Categoría aplicada en masa.");
+    toast?.success("Categoría aplicada en masa.");
   };
 
   const handleSort = (field) => {

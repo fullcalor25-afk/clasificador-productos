@@ -17,7 +17,7 @@ function parseXLSX(file) {
   });
 }
 
-export default function UploadView({ onProductsLoaded, hasActiveSession, correctionsCount = 0 }) {
+export default function UploadView({ onProductsLoaded, hasActiveSession, correctionsCount = 0, toast = null }) {
   const [pasteData, setPasteData] = React.useState("");
   const [previewProducts, setPreviewProducts] = React.useState([]);
   const [showConfirmOverwrite, setShowConfirmOverwrite] = React.useState(false);
@@ -49,7 +49,7 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
     if (parsed.length > 0) {
       handleProductsConfirm(parsed);
     } else {
-      alert("No se pudieron parsear filas de los datos pegados. Verificá el formato.");
+      toast?.error("No se pudieron parsear filas de los datos pegados. Verificá el formato.");
     }
   };
 
@@ -62,7 +62,7 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
       if (data.length > 0) {
         handleProductsConfirm(data);
       } else {
-        alert("El archivo Excel no contiene filas válidas.");
+        toast?.error("El archivo Excel no contiene filas válidas.");
       }
     } else {
       const reader = new FileReader();
@@ -71,7 +71,7 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
         if (parsed.length > 0) {
           handleProductsConfirm(parsed);
         } else {
-          alert("El archivo no contiene columnas válidas.");
+          toast?.error("El archivo no contiene columnas reconocidas (CODIGO, PRODUCTO, RUBRO).");
         }
       };
       reader.readAsText(file);

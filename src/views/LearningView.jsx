@@ -10,7 +10,8 @@ export default function LearningView({
   onDeleteCorrection,
   onClearAllCorrections,
   onImportBulkCorrections,
-  classifiedProductsCount = 0
+  classifiedProductsCount = 0,
+  toast = null,
 }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filter, setFilter] = useState("ALL");
@@ -77,14 +78,14 @@ export default function LearningView({
     }).filter(row => row.codigo && row.clasificacion_corregida);
 
     if (validRows.length === 0) {
-      alert("No se encontraron filas válidas con las columnas 'codigo' y 'clasificacion_corregida'.");
+      toast?.error("No se encontraron filas válidas con las columnas 'codigo' y 'clasificacion_corregida'.");
       return;
     }
 
     onImportBulkCorrections(validRows);
     setImportCsvText("");
     setShowImportModal(false);
-    alert(`Se importaron ${validRows.length} correcciones correctamente.`);
+    toast?.success(`Se importaron ${validRows.length} correcciones correctamente.`);
   };
 
   // Export CSV
@@ -111,7 +112,7 @@ export default function LearningView({
     onClearAllCorrections();
     setShowClearConfirm(false);
     setClearInputConfirm("");
-    alert("Se eliminó toda la base de datos de aprendizaje.");
+    toast?.success("Se eliminó toda la base de datos de aprendizaje.");
   };
 
   return (
