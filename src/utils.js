@@ -290,6 +290,37 @@ export async function fetchWithTimeout(url, options = {}, timeout = 30000) {
   }
 }
 
+/**
+ * Wrapper over fetchWithTimeout that:
+ * - Adds Content-Type: application/json by default
+ * - Auto-parses JSON response
+ * - Throws on non-2xx status (error.message = server error string)
+ * - Maps network errors to user-friendly messages
+ */
+export async function apiFetch(url, options = {}) {
+  try {
+    const res = await fetchWithTimeout(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+    const data = await res.json().catch(() => ({ error: "Respuesta inválida del servidor" }));
+    if (!res.ok) {
+      const msg = data.error || data.message || `Error ${res.status}`;
+      throw new Error(msg);
+    }
+    return data;
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error("Tiempo de espera agotado. Intentá de nuevo.");
+    if (err.name === "TypeError" && err.message.includes("fetch")) {
+      throw new Error("Sin conexión. Verificá tu internet.");
+    }
+    throw err;
+  }
+}
+
 export function exportTiendaNubeCSV(productos, tnCategories = []) {
   const SEP = ";";
 
