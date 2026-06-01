@@ -75,6 +75,7 @@ export default function ProductClassifier() {
   const {
     tnCategories,
     loading: tnCatLoading,
+    loadTnCategories,
     saveTnCategory,
     deleteTnCategory,
   } = useTnCategories();
@@ -562,6 +563,7 @@ export default function ProductClassifier() {
               loading={tnCatLoading}
               onSave={saveTnCategory}
               onDelete={deleteTnCategory}
+              classifiedProducts={classified}
             />
           )}
 
