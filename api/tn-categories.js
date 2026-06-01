@@ -1,4 +1,4 @@
-import { logRequest } from './_helpers.js'
+import { logRequest, supabaseQuery } from './_helpers.js'
 
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -17,26 +17,19 @@ export default async function handler(req, res) {
   if (!SUPABASE_URL || !SUPABASE_KEY)
     return res.status(500).json({ error: 'Variables de Supabase no configuradas' })
 
-  const h = {
-    apikey: SUPABASE_KEY,
-    Authorization: 'Bearer ' + SUPABASE_KEY,
-    'Content-Type': 'application/json',
-  }
-
   const { id } = req.query
 
   // GET — devuelve todas las categorías TN ordenadas
   if (req.method === 'GET') {
     try {
-      const r    = await fetch(
-        SUPABASE_URL + '/rest/v1/tiendanube_categories?select=*&activa=eq.true&order=nivel1.asc,nivel2.asc,nivel3.asc,orden.asc',
-        { headers: h }
+      const data = await supabaseQuery(
+        '/rest/v1/tiendanube_categories?select=*&activa=eq.true&order=nivel1.asc,nivel2.asc,nivel3.asc,orden.asc',
+        {}, SUPABASE_URL, SUPABASE_KEY
       )
-      const data = await r.json()
-      if (!r.ok) return res.status(r.status).json(data)
-      return res.status(200).json(data)
+      return res.status(200).json(data || [])
     } catch (e) {
-      return res.status(500).json({ error: e.message })
+      console.error('[tn-categories GET]', e.message)
+      return res.status(e.status || 500).json({ error: e.message })
     }
   }
 
@@ -65,16 +58,15 @@ export default async function handler(req, res) {
     }
 
     try {
-      const r    = await fetch(SUPABASE_URL + '/rest/v1/tiendanube_categories', {
-        method: 'POST',
-        headers: { ...h, Prefer: 'return=representation' },
-        body: JSON.stringify(payload),
-      })
-      const data = await r.json()
-      if (!r.ok) return res.status(r.status).json(data)
-      return res.status(200).json(data[0] || {})
+      const data = await supabaseQuery(
+        '/rest/v1/tiendanube_categories',
+        { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(payload) },
+        SUPABASE_URL, SUPABASE_KEY
+      )
+      return res.status(200).json(Array.isArray(data) ? data[0] : (data || {}))
     } catch (e) {
-      return res.status(500).json({ error: e.message })
+      console.error('[tn-categories POST]', e.message)
+      return res.status(e.status || 500).json({ error: e.message })
     }
   }
 
@@ -92,18 +84,15 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No hay campos para actualizar' })
 
     try {
-      const r = await fetch(SUPABASE_URL + '/rest/v1/tiendanube_categories?id=eq.' + id, {
-        method: 'PATCH',
-        headers: { ...h, Prefer: 'return=minimal' },
-        body: JSON.stringify(patch),
-      })
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}))
-        return res.status(r.status).json(err)
-      }
+      await supabaseQuery(
+        '/rest/v1/tiendanube_categories?id=eq.' + id,
+        { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(patch) },
+        SUPABASE_URL, SUPABASE_KEY
+      )
       return res.status(200).json({ success: true })
     } catch (e) {
-      return res.status(500).json({ error: e.message })
+      console.error('[tn-categories PUT]', e.message)
+      return res.status(e.status || 500).json({ error: e.message })
     }
   }
 
@@ -111,17 +100,15 @@ export default async function handler(req, res) {
   if (req.method === 'DELETE') {
     if (!id) return res.status(400).json({ error: 'Falta id' })
     try {
-      const r = await fetch(SUPABASE_URL + '/rest/v1/tiendanube_categories?id=eq.' + id, {
-        method: 'DELETE',
-        headers: { ...h, Prefer: 'return=minimal' },
-      })
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}))
-        return res.status(r.status).json(err)
-      }
+      await supabaseQuery(
+        '/rest/v1/tiendanube_categories?id=eq.' + id,
+        { method: 'DELETE', headers: { Prefer: 'return=minimal' } },
+        SUPABASE_URL, SUPABASE_KEY
+      )
       return res.status(200).json({ success: true })
     } catch (e) {
-      return res.status(500).json({ error: e.message })
+      console.error('[tn-categories DELETE]', e.message)
+      return res.status(e.status || 500).json({ error: e.message })
     }
   }
 

@@ -1,4 +1,4 @@
-import { logRequest } from './_helpers.js'
+import { logRequest, supabaseQuery } from './_helpers.js'
 
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -28,12 +28,14 @@ export default async function handler(req, res) {
   // GET: Fetch rules
   if (req.method === 'GET') {
     try {
-      const r    = await fetch(SUPABASE_URL + '/rest/v1/classification_rules?select=*&order=id.asc', { headers: h })
-      const data = await r.json()
-      if (!r.ok) return res.status(r.status).json(data)
-      return res.status(200).json(data)
+      const data = await supabaseQuery(
+        '/rest/v1/classification_rules?select=*&order=id.asc',
+        {}, SUPABASE_URL, SUPABASE_KEY
+      )
+      return res.status(200).json(data || [])
     } catch (e) {
-      return res.status(500).json({ error: e.message })
+      console.error('[rules GET]', e.message)
+      return res.status(e.status || 500).json({ error: e.message })
     }
   }
 

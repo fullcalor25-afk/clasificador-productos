@@ -1,4 +1,4 @@
-import { logRequest } from './_helpers.js'
+import { logRequest, supabaseQuery } from './_helpers.js'
 
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
