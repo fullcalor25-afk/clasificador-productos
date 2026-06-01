@@ -22,6 +22,11 @@ export default function useTnCategories() {
   useEffect(() => { loadTnCategories(); }, []);
 
   const saveTnCategory = async (formData) => {
+    // Client-side validation before hitting the API
+    if (!formData?.nivel1?.trim()) {
+      return { success: false, error: "El campo nivel1 es requerido." };
+    }
+
     setLoading(true);
     try {
       const isEdit = !!formData.id;
@@ -34,12 +39,13 @@ export default function useTnCategories() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        return { success: false, error: err.error || `HTTP ${res.status}` };
+        return { success: false, error: err.error || `Error ${res.status}` };
       }
       await loadTnCategories();
       return { success: true };
     } catch (e) {
-      return { success: false, error: e.message };
+      console.error("Error guardando categoría TN", e);
+      return { success: false, error: e.message || "Error al comunicarse con el servidor." };
     } finally {
       setLoading(false);
     }
