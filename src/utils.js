@@ -38,16 +38,39 @@ export function slugify(text) {
     .trim();
 }
 
-export function buildCategoriaTN(product) {
-  const MAP = {
-    "Calefacción":    "Repuestos > Calefacción",
-    "Refrigeración":  "Repuestos > Refrigeración",
-    "Gas y Agua":     "Repuestos > Gas y Agua",
-    "Agua Sanitaria": "Repuestos > Agua Sanitaria",
-    "Herramientas":   "Herramientas",
-  };
-  const base = MAP[product._categoria] || "Repuestos";
-  return product._subcategoria ? base + " > " + product._subcategoria : base;
+export function buildCategoriaTN(product, tnCategories = []) {
+  // Prioridad 1: dato enriquecido por IA
+  if (product._enriched?.categoria_tiendanube) {
+    return product._enriched.categoria_tiendanube;
+  }
+
+  // Prioridad 2: matching por keywords en tabla tiendanube_categories
+  if (tnCategories.length > 0 && (product.PRODUCTO || product.producto)) {
+    const nombre = ((product.PRODUCTO || product.producto) || "").toLowerCase();
+    let bestMatch = null;
+    let bestScore = 0;
+    tnCategories.forEach(cat => {
+      if (!cat.keywords) return;
+      const kws = cat.keywords.split(",").map(k => k.trim().toLowerCase());
+      const score = kws.filter(kw => kw && nombre.includes(kw)).length;
+      if (score > bestScore) { bestScore = score; bestMatch = cat; }
+    });
+    if (bestMatch && bestScore > 0) {
+      const parts = [bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3, bestMatch.nivel4]
+        .filter(Boolean);
+      return parts.join(" > ");
+    }
+  }
+
+  // Prioridad 3: categoría interna del clasificador
+  if (product._categoria && product._subcategoria) {
+    return `Repuestos y Accesorios > ${product._categoria} > ${product._subcategoria}`;
+  }
+  if (product._categoria) {
+    return `Repuestos y Accesorios > ${product._categoria}`;
+  }
+
+  return "Repuestos y Accesorios";
 }
 
 export function getProductPrice(p) {

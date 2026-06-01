@@ -3,7 +3,7 @@ const MODELS = [
   'llama-3.1-8b-instant',
 ]
 
-const SYSTEM_PROMPT = `Sos un experto en productos HVAC (calefaccion, refrigeracion, gas, agua sanitaria) y en e-commerce argentino. Para cada producto genera datos para una tienda online.
+const BASE_SYSTEM_PROMPT = `Sos un experto en productos HVAC (calefaccion, refrigeracion, gas, agua sanitaria) y en e-commerce argentino. Para cada producto genera datos para una tienda online.
 
 Responde SOLO con JSON array valido, sin markdown ni backticks.
 Formato exacto por producto:
@@ -20,7 +20,7 @@ Formato exacto por producto:
   "alto_cm": 5,
   "ancho_cm": 8,
   "profundidad_cm": 3,
-  "categoria_tiendanube": "Repuestos > Calefaccion > Calefones"
+  "categoria_tiendanube": "Repuestos y Accesorios > Calefaccion > Calderas > Plaquetas"
 }
 
 Estima peso y dimensiones segun el tipo:
@@ -31,10 +31,18 @@ Estima peso y dimensiones segun el tipo:
 - Filtro deshidratador: peso 0.3-0.5 kg, dims ~15x5x5
 - Accesorio (cupla, racor, tee): peso 0.1-0.3 kg, dims ~5x5x5
 - Producto completo pequeno: peso 2-5 kg
-- Producto completo grande: peso 10-30 kg
+- Producto completo grande: peso 10-30 kg`
 
-Para categoria_tiendanube usa esta estructura:
-Repuestos > [Calefaccion|Refrigeracion|Gas y Agua|Agua Sanitaria|Herramientas] > [subcategoria]`
+function buildSystemPrompt(tnCats) {
+  if (!tnCats || tnCats.length === 0) {
+    return BASE_SYSTEM_PROMPT + '\n\nPara categoria_tiendanube usa la jerarquía: Repuestos y Accesorios > [Calefaccion|Refrigeracion|Gas y Agua|Agua Sanitaria|Herramientas] > [subcategoria] > [tipo]'
+  }
+  const catList = tnCats.map(c => {
+    const parts = [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean)
+    return parts.join(' > ')
+  }).filter(Boolean).join('\n')
+  return BASE_SYSTEM_PROMPT + '\n\nPara categoria_tiendanube elegí la categoría más específica de esta lista:\n' + catList
+}
 
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -50,9 +58,11 @@ export default async function handler(req, res) {
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'GROQ_API_KEY no configurada' })
 
-  const { products } = req.body || {}
+  const { products, tnCategories } = req.body || {}
   if (!products || !Array.isArray(products) || products.length === 0)
     return res.status(400).json({ error: 'No se enviaron productos' })
+
+  const SYSTEM_PROMPT = buildSystemPrompt(tnCategories || [])
 
   const batch = products.slice(0, 15)
   const userPrompt = 'Productos:\n' + JSON.stringify(

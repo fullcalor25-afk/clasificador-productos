@@ -5,6 +5,7 @@ import { getProductPrice, slugify, buildCategoriaTN, exportTiendaNubeCSV, fetchW
 export default function ExportView({
   classifiedProducts,
   categories,
+  tnCategories = [],
   setView,
   updateProductEnriched
 }) {
@@ -96,7 +97,7 @@ export default function ExportView({
         const res = await fetchWithTimeout("/api/enrich", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ products: batch }),
+          body: JSON.stringify({ products: batch, tnCategories }),
         });
         const data = await res.json();
 
@@ -133,7 +134,7 @@ export default function ExportView({
 
   // CSV generate and download
   const handleDownload = () => {
-    exportTiendaNubeCSV(selectedProducts);
+    exportTiendaNubeCSV(selectedProducts, tnCategories);
   };
 
   // Pricing stats
@@ -608,7 +609,7 @@ export default function ExportView({
                       <label style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 4 }}>Categoría Tienda Nube</label>
                       <input
                         id="edit-ctn"
-                        defaultValue={e.categoria_tiendanube || buildCategoriaTN(p)}
+                        defaultValue={e.categoria_tiendanube || buildCategoriaTN(p, tnCategories)}
                         style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13 }}
                       />
                     </div>

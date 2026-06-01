@@ -12,6 +12,7 @@ import useCorrections from "./hooks/useCorrections";
 import useCategories from "./hooks/useCategories";
 import useHistory from "./hooks/useHistory";
 import useClassification from "./hooks/useClassification";
+import useTnCategories from "./hooks/useTnCategories";
 
 // Views
 import HomeView from "./views/HomeView";
@@ -24,6 +25,7 @@ import HistoryDetailView from "./views/HistoryDetailView";
 import LearningView from "./views/LearningView";
 import CategoriesView from "./views/CategoriesView";
 import ClassificationView from "./views/ClassificationView";
+import TnCategoriesView from "./views/TnCategoriesView";
 import SettingsView from "./views/SettingsView";
 
 const SESSION_KEY = "hvac_session";
@@ -65,6 +67,13 @@ export default function ProductClassifier() {
     saveCategory,
     deleteCategoryItem,
   } = useCategories();
+
+  const {
+    tnCategories,
+    loading: tnCatLoading,
+    saveTnCategory,
+    deleteTnCategory,
+  } = useTnCategories();
 
   const {
     historyList,
@@ -441,6 +450,7 @@ export default function ProductClassifier() {
             <ExportView
               classifiedProducts={classified}
               categories={categories}
+              tnCategories={tnCategories}
               setView={setView}
               updateProductEnriched={handleUpdateProductEnriched}
             />
@@ -530,6 +540,16 @@ export default function ProductClassifier() {
               onSaveRule={saveRule}
               onDeleteRule={deleteRule}
               onResetRules={resetRulesToDefault}
+            />
+          )}
+
+          {/* VIEW: TN CATEGORIES */}
+          {!loading && view === "tnCategories" && (
+            <TnCategoriesView
+              tnCategories={tnCategories}
+              loading={tnCatLoading}
+              onSave={saveTnCategory}
+              onDelete={deleteTnCategory}
             />
           )}
 
