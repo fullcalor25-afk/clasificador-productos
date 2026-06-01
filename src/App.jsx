@@ -7,6 +7,7 @@ import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import Modal from "./components/Modal";
 import { useToast, ToastContainer } from "./components/Toast";
+import ActionButton from "./components/ActionButton";
 
 // Hooks
 import useCorrections from "./hooks/useCorrections";
@@ -324,9 +325,12 @@ export default function ProductClassifier() {
   };
 
   // ─── Save History ───────────────────────────────────────────────────────
+  const [savingAnalysis, setSavingAnalysis] = useState(false);
   const handleSaveAnalysisSubmit = async () => {
     if (!saveModalName.trim()) return;
+    setSavingAnalysis(true);
     const res = await saveAnalysis(saveModalName, classified);
+    setSavingAnalysis(false);
     if (res.success) {
       setSaveModalOpen(false);
       toast.success("Análisis guardado con éxito.");
@@ -605,7 +609,14 @@ export default function ProductClassifier() {
           />
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <button onClick={() => setSaveModalOpen(false)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
-            <button onClick={handleSaveAnalysisSubmit} disabled={!saveModalName.trim()} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: saveModalName.trim() ? C.accent : C.border, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Confirmar y Guardar</button>
+            <ActionButton
+              onClick={handleSaveAnalysisSubmit}
+              loading={savingAnalysis}
+              disabled={!saveModalName.trim()}
+              style={{ padding: "8px 18px", fontSize: 12 }}
+            >
+              Confirmar y Guardar
+            </ActionButton>
           </div>
         </Modal>
       )}
