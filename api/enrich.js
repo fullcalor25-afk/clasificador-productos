@@ -55,6 +55,11 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ error: 'Metodo no permitido' })
 
+  const count = Array.isArray(req.body?.products) ? req.body.products.length : 0
+  if (process.env.NODE_ENV !== 'production' || process.env.DEBUG_API) {
+    console.log('[enrich] POST', count, 'products')
+  }
+
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'GROQ_API_KEY no configurada' })
 

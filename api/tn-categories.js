@@ -1,3 +1,5 @@
+import { logRequest } from './_helpers.js'
+
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
@@ -7,6 +9,7 @@ function setCORS(res) {
 export default async function handler(req, res) {
   setCORS(res)
   if (req.method === 'OPTIONS') return res.status(200).end()
+  logRequest('tn-categories', { method: req.method, query: req.query, body: req.body })
 
   const SUPABASE_URL = process.env.SUPABASE_URL
   const SUPABASE_KEY = process.env.SUPABASE_KEY
