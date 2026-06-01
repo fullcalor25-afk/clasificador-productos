@@ -66,9 +66,36 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const body = req.body
     if (!body) return res.status(400).json({ error: 'Request invalido' })
-    const { nombre, productos } = body
-    if (!nombre || !Array.isArray(productos))
+    const nombre   = (body.nombre || body.name || '').trim()
+    const rawProds = body.productos || body.products || []
+    if (!nombre || !Array.isArray(rawProds))
       return res.status(400).json({ error: 'Faltan campos obligatorios' })
+
+    // Normalize field names — accept both lowercase and UPPERCASE keys
+    const productos = rawProds.map(p => ({
+      codigo:           p.codigo         || p.CODIGO           || '',
+      producto:         p.producto       || p.PRODUCTO         || '',
+      rubro:            p.rubro          || p.RUBRO            || '',
+      sub_rubro:        p.sub_rubro      || p['SUB RUBRO']     || p.subRubro || '',
+      clasificacion:    p.clasificacion  || p.CLASIFICACION    || 'OTRO',
+      fuente:           p.fuente         || p.FUENTE           || 'REGLAS',
+      confianza:        parseInt(p.confianza || p.CONFIANZA || 0),
+      category_id:      p.category_id    || p.categoryId       || null,
+      subcategory_id:   p.subcategory_id || p.subcategoryId    || null,
+      tipo:             p.tipo           || p.TIPO             || null,
+      slug:             p.slug           || p._enriched?.slug  || null,
+      nombre_limpio:    p.nombre_limpio  || p._enriched?.nombre_limpio || null,
+      marca:            p.marca          || p._enriched?.marca || null,
+      descripcion_html: p.descripcion_html || p._enriched?.descripcion_html || null,
+      tags:             Array.isArray(p.tags) ? JSON.stringify(p.tags) : (p.tags || null),
+      seo_titulo:       p.seo_titulo       || p._enriched?.seo_titulo    || null,
+      seo_descripcion:  p.seo_descripcion  || p._enriched?.seo_descripcion || null,
+      peso_kg:          parseFloat(p.peso_kg || p._enriched?.peso_kg) || null,
+      alto_cm:          parseFloat(p.alto_cm || p._enriched?.alto_cm) || null,
+      ancho_cm:         parseFloat(p.ancho_cm || p._enriched?.ancho_cm) || null,
+      profundidad_cm:   parseFloat(p.profundidad_cm || p._enriched?.profundidad_cm) || null,
+      categoria_tiendanube: p.categoria_tiendanube || p._enriched?.categoria_tiendanube || null,
+    }))
 
     const stats = { total: productos.length, repuestos: 0, accesorios: 0, completos: 0, servicios: 0, otros: 0, aprendidos: 0 }
     productos.forEach(p => {
@@ -100,7 +127,7 @@ export default async function handler(req, res) {
       })
       if (!bRes.ok) {
         const err = await bRes.json().catch(() => ({}))
-        console.log('Error insertando productos lote', i, err)
+        console.error('[history] Error insertando lote', i, JSON.stringify(err).substring(0, 200))
       }
     }
     return res.status(200).json({ id: analysisId })

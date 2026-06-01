@@ -40,17 +40,25 @@ export default async function handler(req, res) {
   // POST — crear fila
   if (req.method === 'POST') {
     const body = req.body
-    if (!body || !body.nivel1)
-      return res.status(400).json({ error: 'nivel1 es obligatorio' })
+    if (!body) return res.status(400).json({ error: 'Request inválido' })
+
+    const nivel1   = (body.nivel1 || body.level1 || '').trim()
+    const nivel2   = body.nivel2  || body.level2  || null
+    const nivel3   = body.nivel3  || body.level3  || null
+    const nivel4   = body.nivel4  || body.level4  || null
+    const keywords = body.keywords || body.keyword || null
+    const orden    = body.orden    || body.order   || 0
+
+    if (!nivel1) return res.status(400).json({ error: 'Se requiere al menos nivel1' })
 
     const payload = {
-      nivel1:    body.nivel1,
-      nivel2:    body.nivel2    || null,
-      nivel3:    body.nivel3    || null,
-      nivel4:    body.nivel4    || null,
-      keywords:  body.keywords  || null,
-      activa:    body.activa    !== undefined ? body.activa : true,
-      orden:     body.orden     || 0,
+      nivel1,
+      nivel2,
+      nivel3,
+      nivel4,
+      keywords,
+      activa: body.activa !== undefined ? body.activa : true,
+      orden,
     }
 
     try {

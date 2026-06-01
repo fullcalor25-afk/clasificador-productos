@@ -94,17 +94,22 @@ export default async function handler(req, res) {
     }
 
     // Single correction upsert
-    const { codigo, producto, rubro, sub_rubro, clasificacion_corregida } = body
-    if (!codigo || !clasificacion_corregida)
-      return res.status(400).json({ error: 'Faltan campos obligatorios' })
+    const codigo        = (body.codigo || body.code || body.sku || '').trim()
+    const clasificacion = (body.clasificacion_corregida || body.clasificacion || body.classification || '').trim()
+    const producto      = body.producto || ''
+    const rubro         = body.rubro    || ''
+    const sub_rubro     = body.sub_rubro || ''
+
+    if (!codigo || !clasificacion)
+      return res.status(400).json({ error: 'Se requieren codigo y clasificacion' })
 
     const payload = {
       codigo,
-      producto:                producto || '',
-      rubro:                   rubro || '',
-      sub_rubro:               sub_rubro || '',
-      clasificacion_corregida,
-      updated_at:              new Date().toISOString(),
+      producto,
+      rubro,
+      sub_rubro,
+      clasificacion_corregida: clasificacion,
+      updated_at: new Date().toISOString(),
     }
 
     const r = await fetch(SUPABASE_URL + '/rest/v1/corrections', {

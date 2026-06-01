@@ -42,26 +42,31 @@ export default async function handler(req, res) {
     const body = req.body
     if (!body) return res.status(400).json({ error: 'Request invalido' })
 
+    const nombre      = (body.nombre || body.name || body.label || '').trim()
+    const color       = body.color || '#3b82f6'
+    const icono       = body.icono || body.icon || body.emoji || '📦'
+    const orden       = body.orden || body.order || 0
+    const category_id = body.category_id || body.categoryId || null
+
+    if (!nombre) return res.status(400).json({ error: 'El nombre es requerido' })
+
     if (body.type === 'subcategory') {
-      const { category_id, nombre, descripcion, keywords, orden } = body
-      if (!category_id || !nombre)
+      if (!category_id)
         return res.status(400).json({ error: 'Faltan campos obligatorios' })
       const r = await fetch(SUPABASE_URL + '/rest/v1/subcategories', {
         method: 'POST',
         headers: { ...h, Prefer: 'return=representation' },
-        body: JSON.stringify({ category_id, nombre, descripcion: descripcion || null, keywords: keywords || null, orden: orden || 0 }),
+        body: JSON.stringify({ category_id, nombre, descripcion: body.descripcion || null, keywords: body.keywords || null, orden }),
       })
       const data = await r.json()
       if (!r.ok) return res.status(r.status).json(data)
       return res.status(200).json(data[0] || {})
     }
 
-    const { nombre, color, icono, orden } = body
-    if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' })
     const r = await fetch(SUPABASE_URL + '/rest/v1/categories', {
       method: 'POST',
       headers: { ...h, Prefer: 'return=representation' },
-      body: JSON.stringify({ nombre, color: color || '#3b82f6', icono: icono || '📦', orden: orden || 0 }),
+      body: JSON.stringify({ nombre, color, icono, orden }),
     })
     const data = await r.json()
     if (!r.ok) return res.status(r.status).json(data)
