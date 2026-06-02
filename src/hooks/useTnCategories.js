@@ -1,8 +1,16 @@
 import { useState, useEffect } from "react";
 import { fetchWithTimeout } from "../utils";
 
+const CACHE_KEY = "tn_categories_cache";
+
 export default function useTnCategories() {
-  const [tnCategories, setTnCategories] = useState([]);
+  // Initialize from cache immediately to avoid empty flash
+  const [tnCategories, setTnCategories] = useState(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
   const [loading, setLoading] = useState(false);
 
   const loadTnCategories = async () => {
@@ -11,9 +19,13 @@ export default function useTnCategories() {
       const res = await fetchWithTimeout("/api/tn-categories");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (Array.isArray(data)) setTnCategories(data);
+      if (Array.isArray(data) && data.length > 0) {
+        setTnCategories(data);
+        localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      }
     } catch (e) {
       console.error("Error cargando categorías TN", e);
+      // Fallback: use whatever is in cache (already initialized in useState)
     } finally {
       setLoading(false);
     }
@@ -22,11 +34,9 @@ export default function useTnCategories() {
   useEffect(() => { loadTnCategories(); }, []);
 
   const saveTnCategory = async (formData) => {
-    // Client-side validation before hitting the API
     if (!formData?.nivel1?.trim()) {
       return { success: false, error: "El campo nivel1 es requerido." };
     }
-
     setLoading(true);
     try {
       const isEdit = !!formData.id;

@@ -1,8 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { fetchWithTimeout } from "../utils";
 
+const CAT_CACHE_KEY = "categories_cache";
+
 export default function useCategories() {
-  const [categories, setCategories] = useState([]);
+  // Initialize from cache to avoid empty flash
+  const [categories, setCategories] = useState(() => {
+    try {
+      const cached = localStorage.getItem(CAT_CACHE_KEY);
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const categoriesRef = useRef([]);
@@ -17,10 +25,20 @@ export default function useCategories() {
       if (Array.isArray(data)) {
         categoriesRef.current = data;
         setCategories(data);
+        localStorage.setItem(CAT_CACHE_KEY, JSON.stringify(data));
       }
     } catch (e) {
       console.error("Error cargando categorías", e);
       setError("No se pudieron cargar las categorías.");
+      // Fallback: restore from cache
+      try {
+        const cached = localStorage.getItem(CAT_CACHE_KEY);
+        if (cached) {
+          const data = JSON.parse(cached);
+          categoriesRef.current = data;
+          setCategories(data);
+        }
+      } catch {}
     } finally {
       setLoading(false);
     }

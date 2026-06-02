@@ -38,8 +38,8 @@ function buildSystemPrompt(tnCats) {
     return BASE_SYSTEM_PROMPT + '\n\nPara categoria_tiendanube usa la jerarquía: Repuestos y Accesorios > [Calefaccion|Refrigeracion|Gas y Agua|Agua Sanitaria|Herramientas] > [subcategoria] > [tipo]'
   }
   const catList = tnCats.map(c => {
-    const parts = [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean)
-    return parts.join(' > ')
+    return [c.nivel1, c.nivel2, c.nivel3, c.nivel4, c.nivel5, c.nivel6]
+      .filter(Boolean).join(' > ')
   }).filter(Boolean).join('\n')
   return BASE_SYSTEM_PROMPT + '\n\nPara categoria_tiendanube elegí la categoría más específica de esta lista:\n' + catList
 }

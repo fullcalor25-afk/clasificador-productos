@@ -2,7 +2,19 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { C } from "../constants";
 import { buildCategoriaTN } from "../utils";
 
-// ─── Mobile breakpoint hook ────────────────────────────────────────────────────
+// ─── Keys for each nivel ───────────────────────────────────────────────────────
+const NK = ["nivel1", "nivel2", "nivel3", "nivel4", "nivel5", "nivel6"];
+const PANEL_LABELS = ["Principales", "Categorías", "Subcategorías", "Tipos", "Variantes", "Detalles"];
+const PANEL_ADD_LABELS = [
+  "Agregar principal...",
+  "Agregar categoría...",
+  "Agregar subcategoría...",
+  "Agregar tipo...",
+  "Agregar variante...",
+  "Agregar detalle...",
+];
+
+// ─── Mobile breakpoint ─────────────────────────────────────────────────────────
 function useIsMobile(bp = 720) {
   const [is, setIs] = useState(() => window.innerWidth < bp);
   useEffect(() => {
@@ -13,7 +25,7 @@ function useIsMobile(bp = 720) {
   return is;
 }
 
-// ─── InlineInput — at module level so React never recreates it ─────────────────
+// ─── InlineInput — stable module-level component ───────────────────────────────
 function InlineInput({ placeholder, initialValue = "", onSave, onCancel }) {
   const [val, setVal] = useState(initialValue);
   const ref = useRef(null);
@@ -42,17 +54,82 @@ function InlineInput({ placeholder, initialValue = "", onSave, onCancel }) {
       />
       <button
         onClick={() => onSave(val.trim())}
-        style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 5, padding: "4px 9px", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+        style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 5, padding: "4px 9px", cursor: "pointer", fontSize: 13, fontWeight: 700, flexShrink: 0 }}
       >✓</button>
       <button
         onClick={onCancel}
-        style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 5, padding: "4px 9px", cursor: "pointer", fontSize: 13 }}
+        style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 5, padding: "4px 9px", cursor: "pointer", fontSize: 13, flexShrink: 0 }}
       >✕</button>
     </div>
   );
 }
 
-// ─── KeywordsEditor — at module level ─────────────────────────────────────────
+// ─── DeleteConfirm inline ──────────────────────────────────────────────────────
+function DeleteRow({ label, onConfirm, onCancel }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+      padding: "7px 10px", background: `${C.danger}10`,
+      borderBottom: `1px solid ${C.border}`, fontSize: 12,
+    }}>
+      <span style={{ color: C.danger, flex: 1 }}>
+        ¿Eliminar <strong>{label}</strong>?
+      </span>
+      <button
+        onClick={onConfirm}
+        style={{ padding: "2px 12px", borderRadius: 5, border: "none", background: C.danger, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+      >Sí</button>
+      <button
+        onClick={onCancel}
+        style={{ padding: "2px 10px", borderRadius: 5, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, fontSize: 11, cursor: "pointer" }}
+      >No</button>
+    </div>
+  );
+}
+
+// ─── PanelRow ──────────────────────────────────────────────────────────────────
+function PanelRow({ label, childCount, productCount, isSelected, onSelect, onEdit, onDelete, disabled }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onClick={() => !disabled && onSelect()}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: "flex", alignItems: "center", gap: 4,
+        padding: "8px 10px",
+        cursor: disabled ? "default" : "pointer",
+        background: isSelected ? `${C.accent}12` : hovered ? C.surface2 : "transparent",
+        borderLeft: `3px solid ${isSelected ? C.accent : "transparent"}`,
+        borderBottom: `1px solid ${C.border}`,
+        fontSize: 13, color: isSelected ? C.accent : C.text,
+        fontWeight: isSelected ? 600 : 400,
+        transition: "background 0.1s",
+        minHeight: 36,
+      }}
+    >
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13 }}>
+        {label}
+        {childCount > 0 && (
+          <span style={{ fontSize: 11, color: C.textDim, fontWeight: 400, marginLeft: 4 }}>({childCount})</span>
+        )}
+        {productCount > 0 && (
+          <span style={{ fontSize: 10, color: C.success, fontWeight: 600, marginLeft: 4 }}>·{productCount}p</span>
+        )}
+      </span>
+      <div style={{ display: "flex", gap: 1, flexShrink: 0, opacity: isSelected || hovered ? 1 : 0.3, transition: "opacity 0.1s" }}>
+        <button onClick={e => { e.stopPropagation(); !disabled && onEdit(); }}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 3px", fontSize: 11, borderRadius: 3, color: C.textMuted }}
+          title="Editar">✏️</button>
+        <button onClick={e => { e.stopPropagation(); !disabled && onDelete(); }}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 3px", fontSize: 11, borderRadius: 3, color: C.danger }}
+          title="Eliminar">🗑</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── KeywordsEditor — stable module-level component ───────────────────────────
 function KeywordsEditor({ row, onSave }) {
   const [kwInput, setKwInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -63,6 +140,8 @@ function KeywordsEditor({ row, onSave }) {
   );
 
   if (!row) return null;
+
+  const pathLabel = NK.map(k => row[k]).filter(Boolean).join(" > ");
 
   const add = async () => {
     const kw = kwInput.trim().toLowerCase();
@@ -77,27 +156,24 @@ function KeywordsEditor({ row, onSave }) {
     await onSave({ id: row.id, keywords: keywords.filter(k => k !== kw).join(", ") });
   };
 
-  const displayName = [row.nivel3, row.nivel4].filter(Boolean).join(" > ");
-
   return (
     <div style={{
-      padding: "14px 18px",
+      padding: "13px 18px",
       borderTop: `2px solid ${C.accent}30`,
       background: C.surface,
       display: "flex", flexDirection: "column", gap: 10,
     }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
         🏷 Keywords de{" "}
-        <span style={{ color: C.accent }}>{displayName}</span>
+        <span style={{ color: C.accent }}>{pathLabel}</span>
         <span style={{ fontSize: 11, color: C.textMuted, fontWeight: 400, marginLeft: 6 }}>
-          — usadas para asignación automática
+          — para clasificación automática de productos
         </span>
       </div>
-
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, minHeight: 30, alignItems: "center" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, minHeight: 28, alignItems: "center" }}>
         {keywords.length === 0 && (
           <span style={{ fontSize: 12, color: C.textDim, fontStyle: "italic" }}>
-            Sin keywords. Agregá una para mejorar la clasificación automática.
+            Sin keywords. Agregá una para mejorar el matching automático.
           </span>
         )}
         {keywords.map(kw => (
@@ -108,14 +184,12 @@ function KeywordsEditor({ row, onSave }) {
             color: C.text, fontSize: 12,
           }}>
             {kw}
-            <button
-              onClick={() => remove(kw)}
+            <button onClick={() => remove(kw)}
               style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", padding: "0 0 0 2px", fontSize: 14, lineHeight: 1, display: "flex" }}
             >×</button>
           </span>
         ))}
       </div>
-
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <input
           value={kwInput}
@@ -124,7 +198,7 @@ function KeywordsEditor({ row, onSave }) {
           placeholder="Escribí una keyword y Enter..."
           disabled={saving}
           style={{
-            flex: 1, maxWidth: 260, padding: "6px 10px", borderRadius: 7,
+            flex: 1, maxWidth: 280, padding: "6px 10px", borderRadius: 7,
             border: `1px solid ${C.border}`, background: C.bg,
             color: C.text, fontSize: 12, outline: "none",
           }}
@@ -138,77 +212,7 @@ function KeywordsEditor({ row, onSave }) {
             color: "#fff", fontSize: 12, fontWeight: 600,
             cursor: kwInput.trim() && !saving ? "pointer" : "default",
           }}
-        >
-          + Agregar
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── DeleteConfirm inline row ──────────────────────────────────────────────────
-function DeleteRow({ label, onConfirm, onCancel }) {
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 8,
-      padding: "8px 12px", background: `${C.danger}10`,
-      borderBottom: `1px solid ${C.border}`, fontSize: 12,
-    }}>
-      <span style={{ color: C.danger, flex: 1 }}>
-        ¿Eliminar <strong>{label}</strong>?
-      </span>
-      <button
-        onClick={onConfirm}
-        style={{ padding: "3px 12px", borderRadius: 5, border: "none", background: C.danger, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
-      >Sí</button>
-      <button
-        onClick={onCancel}
-        style={{ padding: "3px 10px", borderRadius: 5, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, fontSize: 11, cursor: "pointer" }}
-      >No</button>
-    </div>
-  );
-}
-
-// ─── Single panel item row ──────────────────────────────────────────────────────
-function PanelRow({ label, count, isSelected, onSelect, onEdit, onDelete, disabled }) {
-  const [hovered, setHovered] = useState(false);
-  const show = isSelected || hovered;
-
-  return (
-    <div
-      onClick={() => !disabled && onSelect()}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: "flex", alignItems: "center",
-        padding: "8px 12px",
-        cursor: disabled ? "default" : "pointer",
-        background: isSelected ? `${C.accent}12` : hovered ? C.surface2 : "transparent",
-        borderLeft: `3px solid ${isSelected ? C.accent : "transparent"}`,
-        borderBottom: `1px solid ${C.border}`,
-        fontSize: 13, color: isSelected ? C.accent : C.text,
-        fontWeight: isSelected ? 600 : 400,
-        transition: "background 0.1s, border-color 0.1s",
-        gap: 4,
-      }}
-    >
-      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {label}
-        {count > 0 && (
-          <span style={{ fontSize: 11, color: C.textDim, fontWeight: 400, marginLeft: 4 }}>({count})</span>
-        )}
-      </span>
-      <div style={{ display: "flex", gap: 2, flexShrink: 0, opacity: show ? 1 : 0, transition: "opacity 0.1s" }}>
-        <button
-          onClick={e => { e.stopPropagation(); onEdit(); }}
-          title="Editar"
-          style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", fontSize: 12, borderRadius: 4, color: C.textMuted }}
-        >✏️</button>
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(); }}
-          title="Eliminar"
-          style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", fontSize: 12, borderRadius: 4, color: C.danger }}
-        >🗑</button>
+        >+ Agregar</button>
       </div>
     </div>
   );
@@ -224,461 +228,326 @@ export default function TnCategoriesView({
 }) {
   const isMobile = useIsMobile();
 
-  // ── Selection state ──
-  const [sel1, setSel1] = useState(null);
-  const [sel2, setSel2] = useState(null);
-  const [sel3, setSel3] = useState(null); // row id
+  // selectedPath[i] = selected item name in panel i (0-indexed)
+  const [selectedPath, setSelectedPath] = useState([]);
 
-  // ── Add state per panel ──
-  const [adding1, setAdding1] = useState(false);
-  const [adding2, setAdding2] = useState(false);
-  const [adding3, setAdding3] = useState(false);
+  // Inline state: which panel is adding/editing/deleting
+  const [addingPanel, setAddingPanel]     = useState(null);          // panel index
+  const [editingItem, setEditingItem]     = useState(null);          // { panelIdx, name }
+  const [deletingItem, setDeletingItem]   = useState(null);          // { panelIdx, name }
+  const [busy, setBusy]                   = useState(false);
+  const [mobilePanel, setMobilePanel]     = useState(0);             // 0-based
 
-  // ── Edit state per panel ──
-  const [editing1, setEditing1] = useState(null); // nivel1 name being edited
-  const [editing2, setEditing2] = useState(null); // nivel2 name being edited
-  const [editing3, setEditing3] = useState(null); // row id being edited
+  // ── Derived panel data ──────────────────────────────────────────────────────
+  const visiblePanelCount = Math.min(selectedPath.length + 1, 6);
 
-  // ── Delete confirm state per panel ──
-  const [deleting1, setDeleting1] = useState(null); // nivel1 name
-  const [deleting2, setDeleting2] = useState(null); // nivel2 name
-  const [deleting3, setDeleting3] = useState(null); // row id
-
-  // ── General busy state during API calls ──
-  const [busy, setBusy] = useState(false);
-
-  // ── Mobile panel navigation ──
-  const [mobilePanel, setMobilePanel] = useState(1);
-
-  // ── Derived lists ──
-  const nivel1List = useMemo(
-    () => [...new Set(tnCategories.map(r => r.nivel1).filter(Boolean))].sort(),
-    [tnCategories]
-  );
-
-  const nivel2List = useMemo(() => {
-    if (!sel1) return [];
-    return [...new Set(
-      tnCategories.filter(r => r.nivel1 === sel1 && r.nivel2).map(r => r.nivel2)
+  const getPanelItems = (panelIdx) => {
+    const parentPath = selectedPath.slice(0, panelIdx);
+    const items = [...new Set(
+      tnCategories
+        .filter(r => parentPath.every((val, i) => r[NK[i]] === val))
+        .map(r => r[NK[panelIdx]])
+        .filter(Boolean)
     )];
-  }, [tnCategories, sel1]);
+    // Sort maintaining insertion order by orden field when possible
+    return items;
+  };
 
-  const nivel3Rows = useMemo(() => {
-    if (!sel1 || !sel2) return [];
-    return tnCategories.filter(r => r.nivel1 === sel1 && r.nivel2 === sel2);
-  }, [tnCategories, sel1, sel2]);
+  const getChildCount = (panelIdx, name) => {
+    if (panelIdx >= 5) return 0;
+    const path = [...selectedPath.slice(0, panelIdx), name];
+    return new Set(
+      tnCategories
+        .filter(r => path.every((val, i) => r[NK[i]] === val))
+        .map(r => r[NK[panelIdx + 1]])
+        .filter(Boolean)
+    ).size;
+  };
 
-  const selectedRow = useMemo(
-    () => sel3 ? nivel3Rows.find(r => r.id === sel3) : null,
-    [nivel3Rows, sel3]
-  );
-
-  // ── Product counts per category path ──
+  // ── Product counts precomputed ──────────────────────────────────────────────
   const productCounts = useMemo(() => {
     const counts = {};
     classifiedProducts.forEach(p => {
       const cat = buildCategoriaTN(p, tnCategories);
       if (!cat) return;
       const parts = cat.split(" > ");
-      if (parts[0]) counts[parts[0]] = (counts[parts[0]] || 0) + 1;
-      if (parts[1]) counts[`${parts[0]} > ${parts[1]}`] = (counts[`${parts[0]} > ${parts[1]}`] || 0) + 1;
-      // full path count
-      counts[cat] = (counts[cat] || 0) + 1;
+      for (let i = 1; i <= parts.length; i++) {
+        const key = parts.slice(0, i).join(" > ");
+        counts[key] = (counts[key] || 0) + 1;
+      }
     });
     return counts;
   }, [classifiedProducts, tnCategories]);
 
-  const rowPath = r => [r.nivel1, r.nivel2, r.nivel3, r.nivel4].filter(Boolean).join(" > ");
-  const rowLabel = r => [r.nivel3, r.nivel4].filter(Boolean).join(" > ") || "(sin nombre)";
-
-  // ── Navigation helpers ──
-  const selectNivel1 = (name) => {
-    setSel1(name);
-    setSel2(null); setSel3(null);
-    setAdding2(false); setEditing2(null); setDeleting2(null);
-    setAdding3(false); setEditing3(null); setDeleting3(null);
-    if (isMobile) setMobilePanel(2);
+  const getProductCount = (panelIdx, name) => {
+    const path = [...selectedPath.slice(0, panelIdx), name];
+    return productCounts[path.join(" > ")] || 0;
   };
 
-  const selectNivel2 = (name) => {
-    setSel2(name);
-    setSel3(null);
-    setAdding3(false); setEditing3(null); setDeleting3(null);
-    if (isMobile) setMobilePanel(3);
+  // ── Keywords: find the exact matching row for selectedPath ──────────────────
+  const keywordsRow = useMemo(() => {
+    if (selectedPath.length === 0) return null;
+    return tnCategories.find(r =>
+      selectedPath.every((val, i) => r[NK[i]] === val)
+    ) || null;
+  }, [tnCategories, selectedPath]);
+
+  // ── Navigation ──────────────────────────────────────────────────────────────
+  const selectItem = (panelIdx, name) => {
+    const newPath = [...selectedPath.slice(0, panelIdx), name];
+    setSelectedPath(newPath);
+    setAddingPanel(null);
+    setEditingItem(null);
+    setDeletingItem(null);
+    if (isMobile) setMobilePanel(Math.min(panelIdx + 1, 5));
   };
 
-  // ── ADD handlers ──
-  const handleAdd1 = async (value) => {
-    if (!value) { setAdding1(false); return; }
+  // ── ADD ─────────────────────────────────────────────────────────────────────
+  const handleAdd = async (value) => {
+    if (!value) { setAddingPanel(null); return; }
+    const payload = {};
+    selectedPath.slice(0, addingPanel).forEach((val, i) => { payload[NK[i]] = val; });
+    payload[NK[addingPanel]] = value;
     setBusy(true);
-    const res = await onSave({ nivel1: value });
+    const res = await onSave(payload);
     setBusy(false);
-    setAdding1(false);
-    if (res?.success) selectNivel1(value);
+    setAddingPanel(null);
+    if (res?.success !== false) selectItem(addingPanel, value);
   };
 
-  const handleAdd2 = async (value) => {
-    if (!value || !sel1) { setAdding2(false); return; }
+  // ── EDIT ────────────────────────────────────────────────────────────────────
+  const handleEdit = async (newValue) => {
+    if (!editingItem) { setEditingItem(null); return; }
+    const { panelIdx, name } = editingItem;
+    if (!newValue || newValue === name) { setEditingItem(null); return; }
+    const parentPath = selectedPath.slice(0, panelIdx);
+    const rows = tnCategories.filter(r =>
+      parentPath.every((val, i) => r[NK[i]] === val) && r[NK[panelIdx]] === name
+    );
     setBusy(true);
-    const res = await onSave({ nivel1: sel1, nivel2: value });
+    for (const r of rows) await onSave({ id: r.id, [NK[panelIdx]]: newValue });
+    if (selectedPath[panelIdx] === name) {
+      const np = [...selectedPath]; np[panelIdx] = newValue; setSelectedPath(np);
+    }
     setBusy(false);
-    setAdding2(false);
-    if (res?.success) selectNivel2(value);
+    setEditingItem(null);
   };
 
-  const handleAdd3 = async (value) => {
-    if (!value || !sel1 || !sel2) { setAdding3(false); return; }
+  // ── DELETE ──────────────────────────────────────────────────────────────────
+  const handleDelete = async () => {
+    if (!deletingItem) return;
+    const { panelIdx, name } = deletingItem;
+    const parentPath = selectedPath.slice(0, panelIdx);
+    const rows = tnCategories.filter(r =>
+      parentPath.every((val, i) => r[NK[i]] === val) && r[NK[panelIdx]] === name
+    );
     setBusy(true);
-    await onSave({ nivel1: sel1, nivel2: sel2, nivel3: value, keywords: "" });
-    setBusy(false);
-    setAdding3(false);
-  };
-
-  // ── EDIT handlers ──
-  const handleEdit1 = async (newValue) => {
-    if (!newValue || !editing1) { setEditing1(null); return; }
-    if (newValue === editing1) { setEditing1(null); return; }
-    setBusy(true);
-    const rows = tnCategories.filter(r => r.nivel1 === editing1);
-    for (const r of rows) await onSave({ id: r.id, nivel1: newValue });
-    if (sel1 === editing1) setSel1(newValue);
-    setBusy(false);
-    setEditing1(null);
-  };
-
-  const handleEdit2 = async (newValue) => {
-    if (!newValue || !editing2) { setEditing2(null); return; }
-    if (newValue === editing2) { setEditing2(null); return; }
-    setBusy(true);
-    const rows = tnCategories.filter(r => r.nivel1 === sel1 && r.nivel2 === editing2);
-    for (const r of rows) await onSave({ id: r.id, nivel2: newValue });
-    if (sel2 === editing2) setSel2(newValue);
-    setBusy(false);
-    setEditing2(null);
-  };
-
-  const handleEdit3 = async (newValue) => {
-    if (!newValue || !editing3) { setEditing3(null); return; }
-    setBusy(true);
-    await onSave({ id: editing3, nivel3: newValue });
-    setBusy(false);
-    setEditing3(null);
-  };
-
-  // ── DELETE handlers ──
-  const handleDelete1 = async () => {
-    if (!deleting1) return;
-    setBusy(true);
-    const rows = tnCategories.filter(r => r.nivel1 === deleting1);
     for (const r of rows) await onDelete(r.id);
-    if (sel1 === deleting1) { setSel1(null); setSel2(null); setSel3(null); }
+    if (selectedPath[panelIdx] === name) setSelectedPath(selectedPath.slice(0, panelIdx));
     setBusy(false);
-    setDeleting1(null);
+    setDeletingItem(null);
   };
 
-  const handleDelete2 = async () => {
-    if (!deleting2) return;
-    setBusy(true);
-    const rows = tnCategories.filter(r => r.nivel1 === sel1 && r.nivel2 === deleting2);
-    for (const r of rows) await onDelete(r.id);
-    if (sel2 === deleting2) { setSel2(null); setSel3(null); }
-    setBusy(false);
-    setDeleting2(null);
+  // ── Panel renderer ───────────────────────────────────────────────────────────
+  const renderPanel = (panelIdx) => {
+    const isVisible = isMobile ? mobilePanel === panelIdx : true;
+    const items = getPanelItems(panelIdx);
+    const headerTitle = panelIdx > 0 && selectedPath[panelIdx - 1]
+      ? selectedPath[panelIdx - 1]
+      : PANEL_LABELS[panelIdx];
+    const isAdding   = addingPanel === panelIdx;
+    const canAdd     = panelIdx === 0 || selectedPath.length >= panelIdx;
+
+    return (
+      <div
+        key={panelIdx}
+        style={{
+          display: isVisible ? "flex" : "none",
+          flexDirection: "column",
+          minWidth: 170,
+          flex: 1,
+          borderRight: panelIdx < visiblePanelCount - 1 ? `1px solid ${C.border}` : "none",
+          overflow: "hidden",
+        }}
+      >
+        {/* Panel header */}
+        <div style={{
+          padding: "9px 12px",
+          borderBottom: `1px solid ${C.border}`,
+          background: C.surface2,
+          fontSize: 10, fontWeight: 700, color: C.textMuted,
+          textTransform: "uppercase", letterSpacing: "0.07em",
+          flexShrink: 0, display: "flex", alignItems: "center", gap: 4,
+        }}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+            {headerTitle}
+          </span>
+          {items.length > 0 && (
+            <span style={{ fontWeight: 400, textTransform: "none", fontSize: 10, color: C.textDim }}>
+              {items.length}
+            </span>
+          )}
+        </div>
+
+        {/* Items */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {items.length === 0 && !isAdding && (
+            <div style={{ padding: "14px 12px", fontSize: 12, color: C.textDim, fontStyle: "italic" }}>
+              {canAdd ? "Vacío. Usá + Agregar." : "← Seleccioná uno"}
+            </div>
+          )}
+
+          {items.map(name => {
+            const isDel  = deletingItem?.panelIdx === panelIdx && deletingItem?.name === name;
+            const isEdit = editingItem?.panelIdx  === panelIdx && editingItem?.name  === name;
+
+            if (isDel) {
+              return <DeleteRow key={name} label={name} onConfirm={handleDelete} onCancel={() => setDeletingItem(null)} />;
+            }
+            if (isEdit) {
+              return (
+                <InlineInput key={`edit-${name}`} initialValue={name}
+                  placeholder="Nuevo nombre..."
+                  onSave={handleEdit}
+                  onCancel={() => setEditingItem(null)}
+                />
+              );
+            }
+            return (
+              <PanelRow
+                key={name}
+                label={name}
+                childCount={getChildCount(panelIdx, name)}
+                productCount={getProductCount(panelIdx, name)}
+                isSelected={selectedPath[panelIdx] === name}
+                onSelect={() => selectItem(panelIdx, name)}
+                onEdit={() => { setEditingItem({ panelIdx, name }); setDeletingItem(null); setAddingPanel(null); }}
+                onDelete={() => { setDeletingItem({ panelIdx, name }); setEditingItem(null); setAddingPanel(null); }}
+                disabled={busy}
+              />
+            );
+          })}
+
+          {isAdding && (
+            <InlineInput
+              placeholder={PANEL_ADD_LABELS[panelIdx]}
+              onSave={handleAdd}
+              onCancel={() => setAddingPanel(null)}
+            />
+          )}
+        </div>
+
+        {/* Add button */}
+        {!isAdding && canAdd && (
+          <button
+            onClick={() => { if (!busy) { setAddingPanel(panelIdx); setEditingItem(null); setDeletingItem(null); } }}
+            disabled={busy}
+            style={{
+              padding: "9px 12px", border: "none",
+              borderTop: `1px solid ${C.border}`,
+              background: "transparent", color: C.accent,
+              fontSize: 12, fontWeight: 600, cursor: busy ? "default" : "pointer",
+              textAlign: "left", flexShrink: 0,
+              opacity: busy ? 0.4 : 1,
+            }}
+          >
+            + {PANEL_ADD_LABELS[panelIdx].replace("...", "")}
+          </button>
+        )}
+      </div>
+    );
   };
 
-  const handleDelete3 = async () => {
-    if (!deleting3) return;
-    setBusy(true);
-    await onDelete(deleting3);
-    if (sel3 === deleting3) setSel3(null);
-    setBusy(false);
-    setDeleting3(null);
-  };
-
-  // ─── Panel rendering helper ───────────────────────────────────────────────────
-  const panelStyle = (visible) => ({
-    flex: 1,
-    display: visible ? "flex" : "none",
-    flexDirection: "column",
-    borderRight: `1px solid ${C.border}`,
-    minWidth: 0,
-    overflow: "hidden",
-  });
-
-  const panelHeaderStyle = {
-    padding: "10px 14px",
-    borderBottom: `1px solid ${C.border}`,
-    background: C.surface2,
-    fontSize: 11, fontWeight: 700, color: C.textMuted,
-    textTransform: "uppercase", letterSpacing: "0.07em",
-    flexShrink: 0,
-  };
-
-  const addBtnStyle = {
-    padding: "9px 14px", border: "none",
-    borderTop: `1px solid ${C.border}`,
-    background: "transparent", color: C.accent,
-    fontSize: 12, fontWeight: 600, cursor: "pointer",
-    textAlign: "left", flexShrink: 0,
-    opacity: busy ? 0.4 : 1,
-  };
-
-  const emptyStyle = {
-    padding: "14px 12px", fontSize: 12, color: C.textDim, fontStyle: "italic",
-  };
-
-  // Mobile: which panels to show
-  const show1 = isMobile ? mobilePanel === 1 : true;
-  const show2 = isMobile ? mobilePanel === 2 : true;
-  const show3 = isMobile ? mobilePanel === 3 : true;
-
+  // ── JSX ─────────────────────────────────────────────────────────────────────
   return (
-    <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 960 }}>
+    <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 1100 }}>
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: 0 }}>
             🛒 Categorías Tienda Nube
           </h2>
           <p style={{ fontSize: 13, color: C.textMuted, margin: "4px 0 0" }}>
-            {tnCategories.length} entradas configuradas · {nivel1List.length} principales
+            {tnCategories.length} entradas · hasta 6 niveles de jerarquía
           </p>
         </div>
-        {loading && <span style={{ fontSize: 12, color: C.textDim }}>Cargando...</span>}
-        {busy   && <span style={{ fontSize: 12, color: C.accent }}>Guardando...</span>}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {loading && <span style={{ fontSize: 12, color: C.textDim }}>Cargando...</span>}
+          {busy    && <span style={{ fontSize: 12, color: C.accent }}>Guardando...</span>}
+          {selectedPath.length > 0 && (
+            <button
+              onClick={() => setSelectedPath([])}
+              style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, fontSize: 12, cursor: "pointer" }}
+            >
+              Limpiar selección
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* ── Mobile back nav ── */}
-      {isMobile && mobilePanel > 1 && (
-        <button
-          onClick={() => setMobilePanel(p => p - 1)}
-          style={{ alignSelf: "flex-start", padding: "6px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, fontSize: 13, cursor: "pointer" }}
-        >
-          ← {mobilePanel === 2 ? "Principales" : sel1}
-        </button>
+      {/* Breadcrumb */}
+      {selectedPath.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", fontSize: 12, color: C.textMuted }}>
+          {selectedPath.map((name, i) => (
+            <React.Fragment key={i}>
+              <button
+                onClick={() => { setSelectedPath(selectedPath.slice(0, i + 1)); setAddingPanel(null); setEditingItem(null); setDeletingItem(null); }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: i === selectedPath.length - 1 ? C.accent : C.textMuted, fontWeight: i === selectedPath.length - 1 ? 600 : 400, fontSize: 12, padding: 0 }}
+              >{name}</button>
+              {i < selectedPath.length - 1 && <span style={{ color: C.textDim }}>›</span>}
+            </React.Fragment>
+          ))}
+        </div>
       )}
 
-      {/* ── Cascade panels ── */}
+      {/* Mobile: panel tabs */}
+      {isMobile && (
+        <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4 }}>
+          {Array.from({ length: visiblePanelCount }, (_, i) => (
+            <button
+              key={i}
+              onClick={() => setMobilePanel(i)}
+              style={{
+                padding: "5px 12px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12,
+                background: mobilePanel === i ? C.accent : "transparent",
+                color: mobilePanel === i ? "#fff" : C.textMuted,
+                cursor: "pointer", flexShrink: 0,
+              }}
+            >
+              {i === 0 ? "Principales" : selectedPath[i - 1] ?? PANEL_LABELS[i]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Panels cascade */}
       <div style={{
-        border: `1px solid ${C.border}`,
-        borderRadius: 14,
-        overflow: "hidden",
-        display: "flex",
-        background: C.surface,
-        minHeight: 420,
+        border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden",
+        display: "flex", background: C.surface, minHeight: 380,
+        overflowX: "auto",
       }}>
-
-        {/* ═══ PANEL 1 — nivel1 ═══ */}
-        <div style={{ ...panelStyle(show1) }}>
-          <div style={panelHeaderStyle}>
-            Principales
-            {nivel1List.length > 0 && <span style={{ fontWeight: 400, textTransform: "none", marginLeft: 5 }}>({nivel1List.length})</span>}
-          </div>
-
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            {nivel1List.length === 0 && !adding1 && (
-              <p style={emptyStyle}>Sin categorías principales.</p>
-            )}
-
-            {nivel1List.map(name => {
-              if (deleting1 === name) {
-                return (
-                  <DeleteRow key={name} label={name}
-                    onConfirm={handleDelete1}
-                    onCancel={() => setDeleting1(null)}
-                  />
-                );
-              }
-              if (editing1 === name) {
-                return (
-                  <InlineInput key={name} initialValue={name} placeholder="Nombre principal..."
-                    onSave={handleEdit1}
-                    onCancel={() => setEditing1(null)}
-                  />
-                );
-              }
-              return (
-                <PanelRow
-                  key={name}
-                  label={name}
-                  count={productCounts[name] || 0}
-                  isSelected={sel1 === name}
-                  onSelect={() => selectNivel1(name)}
-                  onEdit={() => { setEditing1(name); setDeleting1(null); }}
-                  onDelete={() => { setDeleting1(name); setEditing1(null); }}
-                  disabled={busy}
-                />
-              );
-            })}
-
-            {adding1 && (
-              <InlineInput placeholder="Nombre de la categoría principal..."
-                onSave={handleAdd1}
-                onCancel={() => setAdding1(false)}
-              />
-            )}
-          </div>
-
-          {!adding1 && (
-            <button style={addBtnStyle} onClick={() => { setAdding1(true); setEditing1(null); setDeleting1(null); }} disabled={busy}>
-              + Agregar principal
-            </button>
-          )}
-        </div>
-
-        {/* ═══ PANEL 2 — nivel2 ═══ */}
-        <div style={{ ...panelStyle(show2) }}>
-          <div style={panelHeaderStyle}>
-            Categorías
-            {nivel2List.length > 0 && <span style={{ fontWeight: 400, textTransform: "none", marginLeft: 5 }}>({nivel2List.length})</span>}
-            {sel1 && <span style={{ color: C.accent, marginLeft: 5, textTransform: "none", fontWeight: 400 }}>· {sel1}</span>}
-          </div>
-
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            {!sel1 && <p style={emptyStyle}>Seleccioná un principal →</p>}
-            {sel1 && nivel2List.length === 0 && !adding2 && (
-              <p style={emptyStyle}>Sin categorías. Usá + Agregar.</p>
-            )}
-
-            {nivel2List.map(name => {
-              const key2 = `${sel1} > ${name}`;
-              if (deleting2 === name) {
-                return (
-                  <DeleteRow key={name} label={name}
-                    onConfirm={handleDelete2}
-                    onCancel={() => setDeleting2(null)}
-                  />
-                );
-              }
-              if (editing2 === name) {
-                return (
-                  <InlineInput key={name} initialValue={name} placeholder="Nombre de categoría..."
-                    onSave={handleEdit2}
-                    onCancel={() => setEditing2(null)}
-                  />
-                );
-              }
-              return (
-                <PanelRow
-                  key={name}
-                  label={name}
-                  count={productCounts[key2] || 0}
-                  isSelected={sel2 === name}
-                  onSelect={() => selectNivel2(name)}
-                  onEdit={() => { setEditing2(name); setDeleting2(null); }}
-                  onDelete={() => { setDeleting2(name); setEditing2(null); }}
-                  disabled={busy || !sel1}
-                />
-              );
-            })}
-
-            {adding2 && (
-              <InlineInput placeholder="Nombre de la categoría..."
-                onSave={handleAdd2}
-                onCancel={() => setAdding2(false)}
-              />
-            )}
-          </div>
-
-          {!adding2 && sel1 && (
-            <button style={addBtnStyle} onClick={() => { setAdding2(true); setEditing2(null); setDeleting2(null); }} disabled={busy}>
-              + Agregar categoría
-            </button>
-          )}
-        </div>
-
-        {/* ═══ PANEL 3 — nivel3/nivel4 rows ═══ */}
-        <div style={{ ...panelStyle(show3), borderRight: "none" }}>
-          <div style={panelHeaderStyle}>
-            Subcategorías
-            {nivel3Rows.length > 0 && <span style={{ fontWeight: 400, textTransform: "none", marginLeft: 5 }}>({nivel3Rows.length})</span>}
-            {sel2 && <span style={{ color: C.accent, marginLeft: 5, textTransform: "none", fontWeight: 400 }}>· {sel2}</span>}
-          </div>
-
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            {!sel2 && <p style={emptyStyle}>Seleccioná una categoría →</p>}
-            {sel2 && nivel3Rows.length === 0 && !adding3 && (
-              <p style={emptyStyle}>Sin subcategorías. Usá + Agregar.</p>
-            )}
-
-            {nivel3Rows.map(row => {
-              const label = rowLabel(row);
-              const path  = rowPath(row);
-
-              if (deleting3 === row.id) {
-                return (
-                  <DeleteRow key={row.id} label={label}
-                    onConfirm={handleDelete3}
-                    onCancel={() => setDeleting3(null)}
-                  />
-                );
-              }
-              if (editing3 === row.id) {
-                return (
-                  <InlineInput key={row.id} initialValue={row.nivel3 || ""} placeholder="Nombre de subcategoría..."
-                    onSave={handleEdit3}
-                    onCancel={() => setEditing3(null)}
-                  />
-                );
-              }
-              return (
-                <PanelRow
-                  key={row.id}
-                  label={label}
-                  count={productCounts[path] || 0}
-                  isSelected={sel3 === row.id}
-                  onSelect={() => setSel3(row.id)}
-                  onEdit={() => { setEditing3(row.id); setDeleting3(null); }}
-                  onDelete={() => { setDeleting3(row.id); setEditing3(null); }}
-                  disabled={busy}
-                />
-              );
-            })}
-
-            {adding3 && (
-              <InlineInput placeholder="Nombre de la subcategoría..."
-                onSave={handleAdd3}
-                onCancel={() => setAdding3(false)}
-              />
-            )}
-          </div>
-
-          {!adding3 && sel2 && (
-            <button style={addBtnStyle} onClick={() => { setAdding3(true); setEditing3(null); setDeleting3(null); }} disabled={busy}>
-              + Agregar subcategoría
-            </button>
-          )}
-        </div>
+        {Array.from({ length: visiblePanelCount }, (_, i) => renderPanel(i))}
       </div>
 
-      {/* ── Keywords area (shown when a nivel3 row is selected) ── */}
-      {selectedRow && (
-        <div style={{
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-          overflow: "hidden",
-        }}>
-          <KeywordsEditor
-            key={selectedRow.id}
-            row={selectedRow}
-            onSave={onSave}
-          />
+      {/* Keywords area */}
+      {keywordsRow && (
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <KeywordsEditor key={keywordsRow.id} row={keywordsRow} onSave={onSave} />
         </div>
       )}
 
-      {/* ── Empty state ── */}
+      {/* Empty state */}
       {tnCategories.length === 0 && !loading && (
         <div style={{
           textAlign: "center", padding: "50px 20px",
-          background: C.surface, borderRadius: 14,
-          border: `1px solid ${C.border}`,
+          background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`,
         }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🗂</div>
           <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 6 }}>
             Sin categorías configuradas
           </div>
-          <p style={{ fontSize: 13, color: C.textMuted, marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: C.textMuted }}>
             Usá el panel izquierdo para crear tu árbol de categorías Tienda Nube.
           </p>
         </div>

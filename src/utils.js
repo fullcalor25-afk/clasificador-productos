@@ -44,9 +44,9 @@ export function buildCategoriaTN(product, tnCategories = []) {
     return product._enriched.categoria_tiendanube;
   }
 
-  // Prioridad 2: matching por keywords en tabla tiendanube_categories
-  if (tnCategories.length > 0 && (product.PRODUCTO || product.producto)) {
-    const nombre = ((product.PRODUCTO || product.producto) || "").toLowerCase();
+  // Prioridad 2: matching por keywords del nombre del producto
+  if (tnCategories.length > 0 && product.PRODUCTO) {
+    const nombre = (product.PRODUCTO || "").toLowerCase();
     let bestMatch = null;
     let bestScore = 0;
     tnCategories.forEach(cat => {
@@ -56,9 +56,10 @@ export function buildCategoriaTN(product, tnCategories = []) {
       if (score > bestScore) { bestScore = score; bestMatch = cat; }
     });
     if (bestMatch && bestScore > 0) {
-      const parts = [bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3, bestMatch.nivel4]
-        .filter(Boolean);
-      return parts.join(" > ");
+      return [
+        bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3,
+        bestMatch.nivel4, bestMatch.nivel5, bestMatch.nivel6,
+      ].filter(Boolean).join(" > ");
     }
   }
 
