@@ -33,15 +33,38 @@ Estima peso y dimensiones segun el tipo:
 - Producto completo pequeno: peso 2-5 kg
 - Producto completo grande: peso 10-30 kg`
 
+const AUTO_CREATE_RULES = `
+REGLAS PARA categoria_tiendanube:
+1. Primero intentá elegir la categoría más específica de la lista provista.
+2. Si el producto no encaja en ninguna categoría existente, PODÉS sugerir una subcategoría NUEVA, pero SOLO si:
+   a. nivel1 y nivel2 ya existen en la lista (solo podés crear en nivel3 o nivel4)
+   b. El nombre nuevo es GENÉRICO y REUTILIZABLE (no específico de un solo producto o marca)
+   c. El nombre tiene MÁXIMO 3 palabras, en ESPAÑOL, CAPITALIZADO correctamente
+   d. Creés que al menos 3 productos del lote encajarían en esa nueva subcategoría
+   e. NO existe ya una categoría con palabras clave muy similares (+60% de solapamiento)
+3. NUNCA crear nivel1 ni nivel2 nuevos.
+4. NUNCA usar nombres demasiado específicos como "Electrodo BTG12" o "Quemador Ferroli 24kW" —
+   el nombre debe servir para agrupar múltiples productos similares.
+
+EJEMPLOS VÁLIDOS de nuevas subcategorías:
+- "Repuestos y Accesorios > Calefaccion > Calderas > Quemadores"
+- "Repuestos y Accesorios > Calefaccion > Calderas > Hidráulicos"
+- "Repuestos y Accesorios > Refrigeración > Válvulas y filtros > Presostatos"
+
+EJEMPLOS NO VÁLIDOS (NO usar):
+- "Repuestos y Accesorios > Calefaccion > Calderas > Electrodo de encendido BTG12" (demasiado específico)
+- "Repuestos y Accesorios > Nueva Categoría Inventada" (nivel2 nuevo no permitido)
+- "Repuestos y Accesorios > Calefaccion > Calderas > Repuesto Original Vaillant" (marca específica)`
+
 function buildSystemPrompt(tnCats) {
   if (!tnCats || tnCats.length === 0) {
     return BASE_SYSTEM_PROMPT + '\n\nPara categoria_tiendanube usa la jerarquía: Repuestos y Accesorios > [Calefaccion|Refrigeracion|Gas y Agua|Agua Sanitaria|Herramientas] > [subcategoria] > [tipo]'
   }
   const catList = tnCats.map(c => {
-    return [c.nivel1, c.nivel2, c.nivel3, c.nivel4, c.nivel5, c.nivel6]
+    return [c.nivel1, c.nivel2, c.nivel3, c.nivel4]
       .filter(Boolean).join(' > ')
   }).filter(Boolean).join('\n')
-  return BASE_SYSTEM_PROMPT + '\n\nPara categoria_tiendanube elegí la categoría más específica de esta lista:\n' + catList
+  return BASE_SYSTEM_PROMPT + '\n\nCategorías disponibles (elegí la más específica o sugerí una nueva según las REGLAS al final):\n' + catList + '\n' + AUTO_CREATE_RULES
 }
 
 function setCORS(res) {

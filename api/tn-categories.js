@@ -42,20 +42,21 @@ export default async function handler(req, res) {
     const nivel2   = body.nivel2  || body.level2  || null
     const nivel3   = body.nivel3  || body.level3  || null
     const nivel4   = body.nivel4  || body.level4  || null
-    const nivel5   = body.nivel5  || null
-    const nivel6   = body.nivel6  || null
     const keywords = body.keywords || body.keyword || null
     const orden    = body.orden    || body.order   || 0
 
     if (!nivel1) return res.status(400).json({ error: 'Se requiere al menos nivel1' })
+
+    // Máximo 4 niveles
+    const levelCount = [nivel1, nivel2, nivel3, nivel4].filter(Boolean).length
+    if (levelCount > 4)
+      return res.status(400).json({ error: 'Máximo 4 niveles de jerarquía permitidos' })
 
     const payload = {
       nivel1,
       nivel2,
       nivel3,
       nivel4,
-      nivel5,
-      nivel6,
       keywords,
       activa: body.activa !== undefined ? body.activa : true,
       orden,
@@ -80,7 +81,7 @@ export default async function handler(req, res) {
     const body = req.body
     if (!body) return res.status(400).json({ error: 'Request inválido' })
 
-    const allowed = ['nivel1', 'nivel2', 'nivel3', 'nivel4', 'nivel5', 'nivel6', 'keywords', 'activa', 'orden']
+    const allowed = ['nivel1', 'nivel2', 'nivel3', 'nivel4', 'keywords', 'activa', 'orden']
     const patch = {}
     allowed.forEach(k => { if (body[k] !== undefined) patch[k] = body[k] })
 

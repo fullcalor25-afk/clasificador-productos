@@ -3,15 +3,13 @@ import { C } from "../constants";
 import { buildCategoriaTN } from "../utils";
 
 // ─── Keys for each nivel ───────────────────────────────────────────────────────
-const NK = ["nivel1", "nivel2", "nivel3", "nivel4", "nivel5", "nivel6"];
-const PANEL_LABELS = ["Principales", "Categorías", "Subcategorías", "Tipos", "Variantes", "Detalles"];
+const NK = ["nivel1", "nivel2", "nivel3", "nivel4"];
+const PANEL_LABELS = ["Principales", "Categorías", "Subcategorías", "Tipos"];
 const PANEL_ADD_LABELS = [
   "Agregar principal...",
   "Agregar categoría...",
   "Agregar subcategoría...",
   "Agregar tipo...",
-  "Agregar variante...",
-  "Agregar detalle...",
 ];
 
 // ─── Mobile breakpoint ─────────────────────────────────────────────────────────
@@ -239,7 +237,7 @@ export default function TnCategoriesView({
   const [mobilePanel, setMobilePanel]     = useState(0);             // 0-based
 
   // ── Derived panel data ──────────────────────────────────────────────────────
-  const visiblePanelCount = Math.min(selectedPath.length + 1, 6);
+  const visiblePanelCount = Math.min(selectedPath.length + 1, 4);
 
   const getPanelItems = (panelIdx) => {
     const parentPath = selectedPath.slice(0, panelIdx);
@@ -254,7 +252,7 @@ export default function TnCategoriesView({
   };
 
   const getChildCount = (panelIdx, name) => {
-    if (panelIdx >= 5) return 0;
+    if (panelIdx >= 3) return 0; // nivel4 es el nivel final
     const path = [...selectedPath.slice(0, panelIdx), name];
     return new Set(
       tnCategories
@@ -299,7 +297,7 @@ export default function TnCategoriesView({
     setAddingPanel(null);
     setEditingItem(null);
     setDeletingItem(null);
-    if (isMobile) setMobilePanel(Math.min(panelIdx + 1, 5));
+    if (isMobile) setMobilePanel(Math.min(panelIdx + 1, 3));
   };
 
   // ── ADD ─────────────────────────────────────────────────────────────────────
@@ -469,7 +467,7 @@ export default function TnCategoriesView({
             🛒 Categorías Tienda Nube
           </h2>
           <p style={{ fontSize: 13, color: C.textMuted, margin: "4px 0 0" }}>
-            {tnCategories.length} entradas · hasta 6 niveles de jerarquía
+            {tnCategories.length} entradas · hasta 4 niveles de jerarquía
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
