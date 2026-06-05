@@ -463,6 +463,8 @@ export default function ProductClassifier() {
               tnCategories={tnCategories}
               setView={setView}
               updateProductEnriched={handleUpdateProductEnriched}
+              loadTnCategories={loadTnCategories}
+              toast={toast}
             />
           )}
 

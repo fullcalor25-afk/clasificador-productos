@@ -20,7 +20,9 @@ Formato exacto por producto:
   "alto_cm": 5,
   "ancho_cm": 8,
   "profundidad_cm": 3,
-  "categoria_tiendanube": "Repuestos y Accesorios > Calefaccion > Calderas > Plaquetas"
+  "categoria_tiendanube": "Repuestos y Accesorios > Calefaccion > Calderas > Plaquetas",
+  "es_categoria_nueva": false,
+  "keywords_sugeridas": ""
 }
 
 Estima peso y dimensiones segun el tipo:
@@ -33,38 +35,34 @@ Estima peso y dimensiones segun el tipo:
 - Producto completo pequeno: peso 2-5 kg
 - Producto completo grande: peso 10-30 kg`
 
-const AUTO_CREATE_RULES = `
-REGLAS PARA categoria_tiendanube:
-1. Primero intentá elegir la categoría más específica de la lista provista.
-2. Si el producto no encaja en ninguna categoría existente, PODÉS sugerir una subcategoría NUEVA, pero SOLO si:
-   a. nivel1 y nivel2 ya existen en la lista (solo podés crear en nivel3 o nivel4)
-   b. El nombre nuevo es GENÉRICO y REUTILIZABLE (no específico de un solo producto o marca)
-   c. El nombre tiene MÁXIMO 3 palabras, en ESPAÑOL, CAPITALIZADO correctamente
-   d. Creés que al menos 3 productos del lote encajarían en esa nueva subcategoría
-   e. NO existe ya una categoría con palabras clave muy similares (+60% de solapamiento)
-3. NUNCA crear nivel1 ni nivel2 nuevos.
-4. NUNCA usar nombres demasiado específicos como "Electrodo BTG12" o "Quemador Ferroli 24kW" —
-   el nombre debe servir para agrupar múltiples productos similares.
-
-EJEMPLOS VÁLIDOS de nuevas subcategorías:
-- "Repuestos y Accesorios > Calefaccion > Calderas > Quemadores"
-- "Repuestos y Accesorios > Calefaccion > Calderas > Hidráulicos"
-- "Repuestos y Accesorios > Refrigeración > Válvulas y filtros > Presostatos"
-
-EJEMPLOS NO VÁLIDOS (NO usar):
-- "Repuestos y Accesorios > Calefaccion > Calderas > Electrodo de encendido BTG12" (demasiado específico)
-- "Repuestos y Accesorios > Nueva Categoría Inventada" (nivel2 nuevo no permitido)
-- "Repuestos y Accesorios > Calefaccion > Calderas > Repuesto Original Vaillant" (marca específica)`
-
 function buildSystemPrompt(tnCats) {
   if (!tnCats || tnCats.length === 0) {
-    return BASE_SYSTEM_PROMPT + '\n\nPara categoria_tiendanube usa la jerarquía: Repuestos y Accesorios > [Calefaccion|Refrigeracion|Gas y Agua|Agua Sanitaria|Herramientas] > [subcategoria] > [tipo]'
+    return BASE_SYSTEM_PROMPT + `
+
+Para categoria_tiendanube usá la jerarquía: Repuestos y Accesorios > [Calefaccion|Refrigeracion|Gas y Agua|Agua Sanitaria|Herramientas] > [subcategoria] > [tipo]
+Dejá es_categoria_nueva en false y keywords_sugeridas vacío.`
   }
-  const catList = tnCats.map(c => {
-    return [c.nivel1, c.nivel2, c.nivel3, c.nivel4]
-      .filter(Boolean).join(' > ')
-  }).filter(Boolean).join('\n')
-  return BASE_SYSTEM_PROMPT + '\n\nCategorías disponibles (elegí la más específica o sugerí una nueva según las REGLAS al final):\n' + catList + '\n' + AUTO_CREATE_RULES
+
+  const catList = tnCats.map(c =>
+    [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(' > ')
+  ).filter(Boolean).join('\n')
+
+  return BASE_SYSTEM_PROMPT + `
+
+CATEGORÍAS DISPONIBLES:
+${catList}
+
+REGLAS PARA categoria_tiendanube:
+1. PREFERENCIA: elegí SIEMPRE una categoría existente de la lista si encaja. En ese caso es_categoria_nueva = false y keywords_sugeridas = "".
+2. Si el producto no encaja en ninguna existente, podés sugerir una nueva subcategoría de nivel3 o nivel4 SOLO si:
+   * El nombre es genérico (aplica a múltiples productos similares)
+   * Tiene máximo 3 palabras
+   * Está en español correctamente escrito
+   * El nivel1 y nivel2 ya existen en la lista
+3. Si sugerís una nueva, usá el formato completo: "Nivel1 existente > Nivel2 existente > Nombre nuevo"
+4. NO inventes nivel1 ni nivel2 nuevos
+5. En caso de duda, usá la categoría más cercana existente
+6. Cuando es_categoria_nueva = true, completá keywords_sugeridas con 3-5 palabras clave separadas por coma que describan los productos que encajarían en esa categoría (ej: "quemador,ignicion,electrodo,llama")`
 }
 
 function setCORS(res) {

@@ -1,13 +1,15 @@
 import React, { useState, useMemo, useRef } from "react";
 import { C, CLS } from "../constants";
-import { getProductPrice, slugify, buildCategoriaTN, exportTiendaNubeCSV, fetchWithTimeout } from "../utils";
+import { getProductPrice, slugify, buildCategoriaTN, exportTiendaNubeCSV, fetchWithTimeout, apiFetch } from "../utils";
 
 export default function ExportView({
   classifiedProducts,
   categories,
   tnCategories = [],
   setView,
-  updateProductEnriched
+  updateProductEnriched,
+  loadTnCategories = null,
+  toast = null,
 }) {
   const [step, setStep] = useState(1);
   const [selectedIds, setSelectedIds] = useState(() => {
@@ -81,6 +83,7 @@ export default function ExportView({
     const batchSize = 15;
     const total = selectedProducts.length;
     let processed = 0;
+    const allEnrichedResults = []; // accumulate across all batches for category detection
 
     for (let i = 0; i < Math.ceil(total / batchSize); i++) {
       if (enrichAbortRef.current) {
@@ -102,8 +105,8 @@ export default function ExportView({
         const data = await res.json();
 
         if (res.ok && data.results) {
-          // Push enriched data back into App state
           data.results.forEach(result => {
+            allEnrichedResults.push(result);
             const originalProduct = classifiedProducts.find(p => p.CODIGO === result.codigo);
             if (originalProduct && updateProductEnriched) {
               updateProductEnriched(originalProduct._id, result);
@@ -115,6 +118,58 @@ export default function ExportView({
         }
       } catch (e) {
         console.error("Error enriqueciendo lote", i, e);
+      }
+    }
+
+    // ── Auto-create new subcategories suggested by the AI ────────────────────
+    if (!enrichAbortRef.current && loadTnCategories) {
+      const suggestions = {};
+      allEnrichedResults.forEach(r => {
+        if (r.es_categoria_nueva && r.categoria_tiendanube && r.keywords_sugeridas) {
+          const cat = r.categoria_tiendanube.trim();
+          if (!suggestions[cat]) suggestions[cat] = { count: 0, keywords: r.keywords_sugeridas };
+          suggestions[cat].count++;
+        }
+      });
+
+      const toCreate = Object.entries(suggestions).filter(([cat, d]) => {
+        if (d.count < 2) return false; // debe aparecer en 2+ productos
+        // no crear si ya existe (case-insensitive)
+        return !tnCategories.some(c => {
+          const path = [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(" > ");
+          return path.toLowerCase() === cat.toLowerCase();
+        });
+      });
+
+      if (toCreate.length > 0) {
+        let created = 0;
+        for (const [catPath, catData] of toCreate) {
+          const parts = catPath.split(" > ").map(p => p.trim());
+          if (parts.length < 2 || parts.length > 4) continue;
+          try {
+            await apiFetch("/api/tn-categories", {
+              method: "POST",
+              body: JSON.stringify({
+                nivel1: parts[0] || null,
+                nivel2: parts[1] || null,
+                nivel3: parts[2] || null,
+                nivel4: parts[3] || null,
+                keywords: catData.keywords,
+              }),
+            });
+            created++;
+          } catch (e) {
+            console.warn("[auto-cat] No se pudo crear:", catPath, e.message);
+          }
+        }
+        if (created > 0) {
+          await loadTnCategories();
+          const names = toCreate
+            .slice(0, created)
+            .map(([cat]) => cat.split(" > ").pop())
+            .join(", ");
+          toast?.success(`✨ Nuevas subcategorías creadas: ${names}`);
+        }
       }
     }
 
