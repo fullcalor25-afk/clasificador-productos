@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchWithTimeout } from "../utils";
+import { fetchWithTimeout, getCategoriaTN } from "../utils";
 
 export default function useHistory() {
   const [historyList, setHistoryList] = useState([]);
@@ -67,7 +67,7 @@ export default function useHistory() {
     }
   };
 
-  const saveAnalysis = async (nombre, classifiedProducts) => {
+  const saveAnalysis = async (nombre, classifiedProducts, tnCategories = []) => {
     setLoading(true);
     try {
       const productos = classifiedProducts.map(p => {
@@ -95,7 +95,8 @@ export default function useHistory() {
           alto_cm: e ? (e.alto_cm || null) : null,
           ancho_cm: e ? (e.ancho_cm || null) : null,
           profundidad_cm: e ? (e.profundidad_cm || null) : null,
-          categoria_tiendanube: e ? (e.categoria_tiendanube || null) : null,
+          categoria_tiendanube: getCategoriaTN(p, tnCategories) || null,
+          tn_manual: p._tn_manual || false,
         };
       });
       

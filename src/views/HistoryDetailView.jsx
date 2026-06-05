@@ -201,6 +201,7 @@ export default function HistoryDetailView({
                 <th style={{ padding: "10px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Producto</th>
                 <th style={{ padding: "10px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Rubro</th>
                 <th style={{ padding: "10px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Clasificación</th>
+                <th style={{ padding: "10px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Categoría TN</th>
                 <th style={{ padding: "10px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Fuente</th>
                 <th style={{ padding: "10px 14px", textAlign: "center", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Acción</th>
               </tr>
@@ -208,7 +209,7 @@ export default function HistoryDetailView({
             <tbody>
               {pagedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: "40px 20px", textAlign: "center", color: C.textDim }}>
+                  <td colSpan={7} style={{ padding: "40px 20px", textAlign: "center", color: C.textDim }}>
                     Sin coincidencias.
                   </td>
                 </tr>
@@ -253,6 +254,26 @@ export default function HistoryDetailView({
                             confidence={p.confianza}
                           />
                         )}
+                      </td>
+                      {/* CATEGORÍA TN */}
+                      <td style={{ padding: "8px 14px", maxWidth: 220 }}>
+                        {p.categoria_tiendanube ? (() => {
+                          const parts = p.categoria_tiendanube.split(" > ");
+                          return (
+                            <span style={{ fontSize: 11 }}>
+                              {parts.map((part, i) => (
+                                <React.Fragment key={i}>
+                                  {i > 0 && <span style={{ color: C.textDim, margin: "0 2px", fontSize: 10 }}>›</span>}
+                                  {i === parts.length - 1
+                                    ? <strong style={{ color: p.tn_manual ? C.accent : C.text }}>{part}</strong>
+                                    : <span style={{ color: C.textMuted }}>{part}</span>
+                                  }
+                                </React.Fragment>
+                              ))}
+                              {p.tn_manual && <span style={{ marginLeft: 4, fontSize: 10, color: C.accent }} title="Corregido manualmente">✎</span>}
+                            </span>
+                          );
+                        })() : <span style={{ color: C.textDim }}>—</span>}
                       </td>
                       <td style={{ padding: "8px 14px", fontSize: 11 }}>
                         <span style={{ fontWeight: 600, color: isManual ? C.accent : p.fuente === "IA" ? C.success : C.textDim }}>

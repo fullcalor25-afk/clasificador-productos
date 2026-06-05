@@ -74,6 +74,17 @@ export function buildCategoriaTN(product, tnCategories = []) {
   return "Repuestos y Accesorios";
 }
 
+// Prioridad explícita: manual > IA enriched > keyword matching
+export function getCategoriaTN(product, tnCategories = []) {
+  if (product._tn_manual && product._enriched?.categoria_tiendanube) {
+    return product._enriched.categoria_tiendanube;
+  }
+  if (product._enriched?.categoria_tiendanube) {
+    return product._enriched.categoria_tiendanube;
+  }
+  return buildCategoriaTN(product, tnCategories);
+}
+
 export function getProductPrice(p) {
   const keys = ["PRECIO", "precio", "Precio", "PRICE", "price"];
   for (const k of keys) {
@@ -376,7 +387,7 @@ export function exportTiendaNubeCSV(productos, tnCategories = []) {
 
     const slug      = e.slug              || slugify(p.PRODUCTO || p.producto || "");
     const nombre    = e.nombre_limpio     || p.PRODUCTO || p.producto || "";
-    const categoria = e.categoria_tiendanube || buildCategoriaTN(p, tnCategories);
+    const categoria = getCategoriaTN(p, tnCategories);
     const tags      = Array.isArray(e.tags) ? e.tags.join(", ") : (e.tags || "");
     const desc      = e.descripcion_html  || "";
     const seoT      = e.seo_titulo        || nombre.substring(0, 70);

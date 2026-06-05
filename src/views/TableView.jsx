@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from "react";
 import { C, CLS, CLS_COLORS } from "../constants";
+import { buildCategoriaTN } from "../utils";
 import ClassificationBadge from "../components/ClassificationBadge";
 import Pagination from "../components/Pagination";
 
 export default function TableView({
   classifiedProducts,
   categories,
+  tnCategories = [],
   filter,
   setFilter,
   searchTerm,
@@ -14,6 +16,7 @@ export default function TableView({
   setPage,
   onManualClassify,
   onManualCategory,
+  onTNCategory = null,
   onBulkClassify,
   onBulkCategory,
   rules = [],
@@ -41,7 +44,8 @@ export default function TableView({
     FUENTE: true,
     CATEGORIA: true,
     SUBCATEGORIA: true,
-    TIPO: false
+    TIPO: false,
+    CATEGORIA_TN: true,
   });
   const [showColPicker, setShowColPicker] = useState(false);
 
@@ -182,6 +186,47 @@ export default function TableView({
     setFilter(filterVal);
     setPage(0);
     setSelectedIds([]);
+  };
+
+  // ── TN cascade helpers ──────────────────────────────────────────────────
+  const tnSelectStyle = {
+    padding: "4px 8px", borderRadius: 6,
+    border: `1px solid ${C.border}`,
+    background: C.bg, color: C.text,
+    fontSize: 12, outline: "none", width: "100%",
+  };
+
+  // Derive current TN levels from product state or parse from stored path
+  const getTNLevels = (p) => {
+    if (p._tn_nivel1 !== undefined) {
+      return { n1: p._tn_nivel1 || "", n2: p._tn_nivel2 || "", n3: p._tn_nivel3 || "", n4: p._tn_nivel4 || "" };
+    }
+    const catPath = p._enriched?.categoria_tiendanube || buildCategoriaTN(p, tnCategories);
+    const parts = (catPath || "").split(" > ").map(x => x.trim());
+    return { n1: parts[0] || "", n2: parts[1] || "", n3: parts[2] || "", n4: parts[3] || "" };
+  };
+
+  // Format category path with separators, last part bold
+  const TNCategoryCell = ({ p }) => {
+    const { n1, n2, n3, n4 } = getTNLevels(p);
+    const parts = [n1, n2, n3, n4].filter(Boolean);
+    if (parts.length === 0) return <span style={{ color: C.textDim }}>—</span>;
+    const isManual = p._tn_manual;
+    const isSuggested = !isManual && !p._enriched?.categoria_tiendanube;
+    return (
+      <span style={{ fontSize: 12, opacity: isSuggested ? 0.6 : 1 }}>
+        {parts.map((part, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <span style={{ color: C.textDim, margin: "0 2px", fontSize: 10 }}>›</span>}
+            {i === parts.length - 1
+              ? <strong style={{ color: isManual ? C.accent : C.text }}>{part}</strong>
+              : <span style={{ color: C.textMuted }}>{part}</span>
+            }
+          </React.Fragment>
+        ))}
+        {isManual && <span style={{ marginLeft: 4, fontSize: 10, color: C.accent }} title="Categoría corregida manualmente">✎</span>}
+      </span>
+    );
   };
 
   return (
@@ -397,6 +442,9 @@ export default function TableView({
                 {visibleColumns.CATEGORIA && <th style={{ padding: "12px 14px", fontWeight: 700, color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Categoría</th>}
                 {visibleColumns.SUBCATEGORIA && <th style={{ padding: "12px 14px", fontWeight: 700, color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Subcategoría</th>}
                 {visibleColumns.TIPO && <th style={{ padding: "12px 14px", fontWeight: 700, color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Tipo</th>}
+                {visibleColumns.CATEGORIA_TN && tnCategories.length > 0 && (
+                  <th style={{ padding: "12px 14px", fontWeight: 700, color: C.textMuted, fontSize: 11, textTransform: "uppercase", minWidth: 200 }}>Categoría TN</th>
+                )}
                 <th style={{ padding: "12px 14px", textAlign: "center", fontWeight: 700, color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Acción</th>
               </tr>
             </thead>
@@ -577,6 +625,56 @@ export default function TableView({
                       {visibleColumns.TIPO && (
                         <td style={{ padding: "10px 14px", color: C.textDim }}>
                           {p._tipo || "—"}
+                        </td>
+                      )}
+
+                      {/* CATEGORIA TN */}
+                      {visibleColumns.CATEGORIA_TN && tnCategories.length > 0 && (
+                        <td style={{ padding: "10px 14px", maxWidth: 260 }}>
+                          {editingId === p._id && onTNCategory ? (() => {
+                            const { n1, n2, n3, n4 } = getTNLevels(p);
+                            return (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 1, fontWeight: 600 }}>Categoría Tienda Nube:</div>
+                                {/* nivel1 */}
+                                <select value={n1} onChange={e => onTNCategory(p._id, "nivel1", e.target.value)} style={tnSelectStyle}>
+                                  <option value="">Sin categoría principal</option>
+                                  {[...new Set(tnCategories.map(c => c.nivel1).filter(Boolean))].map(v =>
+                                    <option key={v} value={v}>{v}</option>
+                                  )}
+                                </select>
+                                {/* nivel2 */}
+                                {n1 && (
+                                  <select value={n2} onChange={e => onTNCategory(p._id, "nivel2", e.target.value)} style={tnSelectStyle}>
+                                    <option value="">Sin categoría</option>
+                                    {[...new Set(tnCategories.filter(c => c.nivel1 === n1 && c.nivel2).map(c => c.nivel2))].map(v =>
+                                      <option key={v} value={v}>{v}</option>
+                                    )}
+                                  </select>
+                                )}
+                                {/* nivel3 */}
+                                {n2 && (
+                                  <select value={n3} onChange={e => onTNCategory(p._id, "nivel3", e.target.value)} style={tnSelectStyle}>
+                                    <option value="">Sin subcategoría</option>
+                                    {[...new Set(tnCategories.filter(c => c.nivel1 === n1 && c.nivel2 === n2 && c.nivel3).map(c => c.nivel3))].map(v =>
+                                      <option key={v} value={v}>{v}</option>
+                                    )}
+                                  </select>
+                                )}
+                                {/* nivel4 */}
+                                {n3 && (
+                                  <select value={n4} onChange={e => onTNCategory(p._id, "nivel4", e.target.value)} style={tnSelectStyle}>
+                                    <option value="">Sin tipo</option>
+                                    {[...new Set(tnCategories.filter(c => c.nivel1 === n1 && c.nivel2 === n2 && c.nivel3 === n3 && c.nivel4).map(c => c.nivel4))].map(v =>
+                                      <option key={v} value={v}>{v}</option>
+                                    )}
+                                  </select>
+                                )}
+                              </div>
+                            );
+                          })() : (
+                            <TNCategoryCell p={p} />
+                          )}
                         </td>
                       )}
 

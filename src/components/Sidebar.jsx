@@ -1,7 +1,7 @@
 import React from "react";
 import { C } from "../constants";
 
-export default function Sidebar({ view, setView, hasActiveSession, historyCount = 0, correctionsCount = 0 }) {
+export default function Sidebar({ view, setView, hasActiveSession, historyCount = 0, correctionsCount = 0, tnCorrectionsCount = 0 }) {
   const [hoveredItem, setHoveredItem] = React.useState(null);
 
   const sections = [
@@ -26,6 +26,7 @@ export default function Sidebar({ view, setView, hasActiveSession, historyCount 
       items: [
         { id: "history", label: "Historial", icon: "🗂", badge: historyCount },
         { id: "learning", label: "Aprendizaje", icon: "🧠", badge: correctionsCount },
+        { id: "tnLearning", label: "Aprendizaje TN", icon: "🏷", badge: tnCorrectionsCount },
         { id: "categories", label: "Categorías", icon: "📁" },
         { id: "tnCategories", label: "Categorías TN", icon: "🛒" },
       ]

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { C, CLS } from "./constants";
-import { exportCSV, getProductPrice } from "./utils";
+import { exportCSV, getProductPrice, apiFetch } from "./utils";
 
 // Components
 import Sidebar from "./components/Sidebar";
@@ -28,6 +28,7 @@ import LearningView from "./views/LearningView";
 import CategoriesView from "./views/CategoriesView";
 import ClassificationView from "./views/ClassificationView";
 import TnCategoriesView from "./views/TnCategoriesView";
+import TnLearningView from "./views/TnLearningView";
 import SettingsView from "./views/SettingsView";
 
 const SESSION_KEY = "hvac_session";
@@ -89,7 +90,17 @@ export default function ProductClassifier() {
     renameAnalysis,
     updateHistoryProduct,
     loadHistory,
+    loadHistoryDetail,
   } = useHistory();
+
+  // ─── TN Corrections (categoría Tienda Nube aprendida) ──────────────────────
+  const [tnCorrections, setTNCorrections] = useState(() => {
+    try {
+      const cached = localStorage.getItem("tn_corrections_cache");
+      return cached ? JSON.parse(cached) : {};
+    } catch { return {}; }
+  });
+  const [tnCorrectionsList, setTNCorrectionsList] = useState([]);
 
   const {
     rules,
@@ -133,13 +144,27 @@ export default function ProductClassifier() {
     }
   };
 
-  // Restore session on mount
+  // Restore session on mount + load TN corrections
   useEffect(() => {
     const sessionData = loadSession();
     if (sessionData && sessionData.length > 0) {
       setClassified(sessionData);
       recalculateStats(sessionData);
     }
+
+    // Load TN corrections from API (mapa para lookup rápido + lista para vista)
+    fetch("/api/tn-corrections")
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          const map = {};
+          data.forEach(c => { if (c.codigo) map[c.codigo.toLowerCase()] = c.categoria_tiendanube; });
+          setTNCorrections(map);
+          setTNCorrectionsList(data);
+          localStorage.setItem("tn_corrections_cache", JSON.stringify(map));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Recalculate stats helper
@@ -168,6 +193,21 @@ export default function ProductClassifier() {
       200,
       (current, total) => setProcessingProgress({ current, total })
     );
+
+    // Aplicar correcciones TN (categoría Tienda Nube aprendida)
+    const tnCorrs = tnCorrections;
+    results.forEach(r => {
+      const key = (r.CODIGO || "").toLowerCase();
+      if (tnCorrs[key]) {
+        const parts = tnCorrs[key].split(" > ").map(x => x.trim());
+        r._tn_nivel1 = parts[0] || "";
+        r._tn_nivel2 = parts[1] || "";
+        r._tn_nivel3 = parts[2] || "";
+        r._tn_nivel4 = parts[3] || "";
+        r._enriched = { ...(r._enriched || {}), categoria_tiendanube: tnCorrs[key] };
+        r._tn_manual = true;
+      }
+    });
 
     setClassified(results);
     recalculateStats(results);
@@ -222,6 +262,81 @@ export default function ProductClassifier() {
 
     setClassified(updated);
     saveSession(updated);
+  };
+
+  // ─── TN Category correction (Tienda Nube) ──────────────────────────────────
+  const saveTNCorrection = async (codigo, categoriaTN, producto) => {
+    try {
+      await apiFetch("/api/tn-corrections", {
+        method: "POST",
+        body: JSON.stringify({ codigo, categoria_tiendanube: categoriaTN, producto }),
+      });
+      setTNCorrections(prev => {
+        const updated = { ...prev, [codigo.toLowerCase()]: categoriaTN };
+        localStorage.setItem("tn_corrections_cache", JSON.stringify(updated));
+        return updated;
+      });
+      setTNCorrectionsList(prev => {
+        const idx = prev.findIndex(c => (c.codigo || "").toLowerCase() === codigo.toLowerCase());
+        const entry = { codigo, categoria_tiendanube: categoriaTN, producto, updated_at: new Date().toISOString() };
+        if (idx >= 0) return prev.map((c, i) => i === idx ? { ...c, ...entry } : c);
+        return [...prev, { id: Date.now(), ...entry, created_at: new Date().toISOString() }];
+      });
+    } catch (e) {
+      console.warn("[saveTNCorrection]", e.message);
+    }
+  };
+
+  const deleteTNCorrection = async (id, codigo) => {
+    try {
+      await apiFetch(`/api/tn-corrections?id=${id}`, { method: "DELETE" });
+      setTNCorrectionsList(prev => prev.filter(c => c.id !== id));
+      if (codigo) {
+        setTNCorrections(prev => {
+          const updated = { ...prev };
+          delete updated[codigo.toLowerCase()];
+          localStorage.setItem("tn_corrections_cache", JSON.stringify(updated));
+          return updated;
+        });
+      }
+    } catch (e) {
+      console.warn("[deleteTNCorrection]", e.message);
+    }
+  };
+
+  const clearAllTNCorrections = async () => {
+    try {
+      await apiFetch("/api/tn-corrections?all=true", { method: "DELETE" });
+      setTNCorrections({});
+      setTNCorrectionsList([]);
+      localStorage.removeItem("tn_corrections_cache");
+    } catch (e) {
+      console.warn("[clearAllTNCorrections]", e.message);
+    }
+  };
+
+  const handleTNCategory = (id, nivel, value) => {
+    setClassified(prev => prev.map(p => {
+      if (p._id !== id) return p;
+      let n1 = p._tn_nivel1 !== undefined ? (p._tn_nivel1 || "") : "";
+      let n2 = p._tn_nivel2 !== undefined ? (p._tn_nivel2 || "") : "";
+      let n3 = p._tn_nivel3 !== undefined ? (p._tn_nivel3 || "") : "";
+      let n4 = p._tn_nivel4 !== undefined ? (p._tn_nivel4 || "") : "";
+      // Initialize from enriched path if _tn_nivel1 not yet set
+      if (p._tn_nivel1 === undefined) {
+        const catPath = p._enriched?.categoria_tiendanube || "";
+        const parts = catPath.split(" > ").map(x => x.trim());
+        n1 = parts[0] || ""; n2 = parts[1] || ""; n3 = parts[2] || ""; n4 = parts[3] || "";
+      }
+      if (nivel === "nivel1") { n1 = value; n2 = ""; n3 = ""; n4 = ""; }
+      if (nivel === "nivel2") { n2 = value; n3 = ""; n4 = ""; }
+      if (nivel === "nivel3") { n3 = value; n4 = ""; }
+      if (nivel === "nivel4") { n4 = value; }
+      const catPath = [n1, n2, n3, n4].filter(Boolean).join(" > ");
+      const newEnriched = { ...(p._enriched || {}), categoria_tiendanube: catPath };
+      if (p.CODIGO && catPath) saveTNCorrection(p.CODIGO, catPath, p.PRODUCTO || "");
+      return { ...p, _tn_nivel1: n1, _tn_nivel2: n2, _tn_nivel3: n3, _tn_nivel4: n4, _enriched: newEnriched, _tn_manual: true };
+    }));
   };
 
   // ─── Bulk overrides updates ─────────────────────────────────────────────
@@ -330,7 +445,7 @@ export default function ProductClassifier() {
   const handleSaveAnalysisSubmit = async () => {
     if (!saveModalName.trim()) return;
     setSavingAnalysis(true);
-    const res = await saveAnalysis(saveModalName, classified);
+    const res = await saveAnalysis(saveModalName, classified, tnCategories);
     setSavingAnalysis(false);
     if (res.success) {
       setSaveModalOpen(false);
@@ -350,6 +465,7 @@ export default function ProductClassifier() {
         hasActiveSession={classified.length > 0}
         historyCount={historyList.length}
         correctionsCount={correctionsList.length}
+        tnCorrectionsCount={tnCorrectionsList.length}
       />
 
       {/* Main content right panel */}
@@ -440,6 +556,7 @@ export default function ProductClassifier() {
             <TableView
               classifiedProducts={classified}
               categories={categories}
+              tnCategories={tnCategories}
               filter={filter}
               setFilter={setFilter}
               searchTerm={searchTerm}
@@ -448,6 +565,7 @@ export default function ProductClassifier() {
               setPage={setPage}
               onManualClassify={handleManualClassify}
               onManualCategory={handleManualCategory}
+              onTNCategory={handleTNCategory}
               onBulkClassify={handleBulkClassify}
               onBulkCategory={handleBulkCategory}
               rules={rules}
@@ -532,6 +650,18 @@ export default function ProductClassifier() {
               onClearAllCorrections={clearAllCorrections}
               onImportBulkCorrections={importBulkCorrections}
               classifiedProductsCount={classified.filter(p => p._source === "APRENDIDO").length}
+              toast={toast}
+            />
+          )}
+
+          {/* VIEW: TN LEARNING */}
+          {!loading && view === "tnLearning" && (
+            <TnLearningView
+              tnCorrectionsList={tnCorrectionsList}
+              tnCategories={tnCategories}
+              onSaveTNCorrection={saveTNCorrection}
+              onDeleteTNCorrection={deleteTNCorrection}
+              onClearAllTNCorrections={clearAllTNCorrections}
               toast={toast}
             />
           )}
