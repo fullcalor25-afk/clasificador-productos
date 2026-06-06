@@ -4,7 +4,6 @@ import { getProductPrice, slugify, buildCategoriaTN, exportTiendaNubeCSV, fetchW
 
 export default function ExportView({
   classifiedProducts,
-  categories,
   tnCategories = [],
   setView,
   updateProductEnriched,

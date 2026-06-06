@@ -8,7 +8,7 @@ function setCORS(res) {
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
 }
 
-function getSystemPrompt(examples, categories) {
+function getSystemPrompt(examples, tnCategories) {
   let examplesText = ''
   if (examples && examples.length > 0) {
     examplesText =
@@ -21,23 +21,19 @@ function getSystemPrompt(examples, categories) {
   }
 
   let categoriesText = ''
-  if (categories && categories.length > 0) {
-    const lines = []
-    categories.forEach(cat => {
-      ;(cat.subcategories || []).forEach(sub => {
-        const kw = sub.keywords ? ' (keywords: ' + sub.keywords + ')' : ''
-        lines.push('- ' + cat.nombre + ' > ' + sub.nombre + kw)
-      })
-    })
-    if (lines.length > 0) {
+  if (tnCategories && tnCategories.length > 0) {
+    const paths = tnCategories
+      .map(c => [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(' > '))
+      .filter(Boolean)
+    const uniquePaths = [...new Set(paths)]
+    if (uniquePaths.length > 0) {
       categoriesText =
-        '\n\nAdemas de clasificar, asigna cada producto a la CATEGORIA y SUBCATEGORIA mas apropiada de esta lista, ' +
-        'y sugiere un TIPO especifico (maximo 3 palabras):\n\n' +
-        'CATEGORIAS DISPONIBLES:\n' + lines.join('\n') +
-        '\n\nAgrega los campos categoria, subcategoria y tipo a cada objeto de resultado. ' +
-        'Si no corresponde a ninguna, usa null.\n' +
+        '\n\nAdemas de clasificar, asigna a cada producto la CATEGORIA de Tienda Nube mas apropiada de esta lista:\n\n' +
+        'CATEGORIAS TIENDA NUBE DISPONIBLES:\n' + uniquePaths.join('\n') +
+        '\n\nAgrega el campo categoria_tiendanube a cada objeto con el path completo exacto de la lista. ' +
+        'Si no corresponde a ninguna, usa "Repuestos y Accesorios".\n' +
         'Ejemplo: {"codigo":"X","clasificacion":"REPUESTO","confianza":85,"razon":"breve",' +
-        '"categoria":"Repuestos y Accesorios","subcategoria":"Calefaccion","tipo":"Repuesto termico"}'
+        '"categoria_tiendanube":"Repuestos y Accesorios > Calefaccion > Calderas > Plaquetas"}'
     }
   }
 
@@ -97,7 +93,7 @@ export default async function handler(req, res) {
     supabase = createClient(supabaseUrl, supabaseKey)
   }
 
-  const { products, categories } = req.body || {}
+  const { products } = req.body || {}
   if (!products || !Array.isArray(products) || products.length === 0)
     return res.status(400).json({ error: 'No se enviaron productos' })
 
@@ -120,8 +116,25 @@ export default async function handler(req, res) {
     }
   }
 
+  // 2. Cargar categorías TN de Supabase para enriquecer el prompt
+  let tnCategories = []
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('tiendanube_categories')
+        .select('nivel1, nivel2, nivel3, nivel4')
+        .eq('activa', true)
+      if (!error && data) {
+        tnCategories = data
+        console.log('Categorías TN cargadas:', tnCategories.length)
+      }
+    } catch (e) {
+      console.log('Error cargando categorías TN:', e.message)
+    }
+  }
+
   const userPrompt   = buildUserPrompt(products)
-  const systemPrompt = getSystemPrompt(recentCorrections, categories || null)
+  const systemPrompt = getSystemPrompt(recentCorrections, tnCategories)
   let lastError = 'Error desconocido'
 
   for (let m = 0; m < MODELS.length; m++) {

@@ -134,7 +134,7 @@ export default function useClassification() {
   };
 
   // AI groq batch classify with rate limiting, timeouts, and optional key overrides
-  const runAI = async (products, categories, groqApiKeyOverride = null, onResultsReady) => {
+  const runAI = async (products, groqApiKeyOverride = null, onResultsReady) => {
     setAiLoading(true);
     setAiError(null);
     setAiProcessed(0);
@@ -172,7 +172,7 @@ export default function useClassification() {
         const res = await fetchWithTimeout("/api/classify", {
           method: "POST",
           headers,
-          body: JSON.stringify({ products: batch, categories: categories || [] }),
+          body: JSON.stringify({ products: batch }),
         });
 
         const data = await res.json().catch(() => ({}));

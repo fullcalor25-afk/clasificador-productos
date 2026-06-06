@@ -175,7 +175,7 @@ export default function SettingsView({
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{correctionsCount} reglas</div>
           </div>
           <div style={{ background: C.surface2, borderRadius: 8, padding: 10 }}>
-            <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600 }}>CATEGORÍAS</div>
+            <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600 }}>CATEGORÍAS TN</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{categoriesCount} nodos</div>
           </div>
         </div>

@@ -45,11 +45,12 @@ export default function DashboardView({
       .map(([label, value]) => ({ label, value }));
   }, [classifiedProducts]);
 
-  // Categories stats
+  // Categories stats — derivadas de TN nivel2
   const activeCategories = React.useMemo(() => {
     const counts = {};
     classifiedProducts.forEach(p => {
-      if (p._categoria) counts[p._categoria] = (counts[p._categoria] || 0) + 1;
+      const cat = p._tn_nivel2 || p._enriched?.categoria_tiendanube?.split(' > ')[1] || p._categoria || null;
+      if (cat) counts[cat] = (counts[cat] || 0) + 1;
     });
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])

@@ -11,7 +11,6 @@ import ActionButton from "./components/ActionButton";
 
 // Hooks
 import useCorrections from "./hooks/useCorrections";
-import useCategories from "./hooks/useCategories";
 import useHistory from "./hooks/useHistory";
 import useClassification from "./hooks/useClassification";
 import useTnCategories from "./hooks/useTnCategories";
@@ -25,7 +24,6 @@ import ExportView from "./views/ExportView";
 import HistoryView from "./views/HistoryView";
 import HistoryDetailView from "./views/HistoryDetailView";
 import LearningView from "./views/LearningView";
-import CategoriesView from "./views/CategoriesView";
 import ClassificationView from "./views/ClassificationView";
 import TnCategoriesView from "./views/TnCategoriesView";
 import TnLearningView from "./views/TnLearningView";
@@ -66,12 +64,6 @@ export default function ProductClassifier() {
     importBulkCorrections,
     clearAllCorrections,
   } = useCorrections();
-
-  const {
-    categories,
-    saveCategory,
-    deleteCategoryItem,
-  } = useCategories();
 
   const {
     tnCategories,
@@ -146,6 +138,9 @@ export default function ProductClassifier() {
 
   // Restore session on mount + load TN corrections
   useEffect(() => {
+    // Limpiar cache obsoleto de categorías internas
+    localStorage.removeItem("categories_cache");
+
     const sessionData = loadSession();
     if (sessionData && sessionData.length > 0) {
       setClassified(sessionData);
@@ -236,32 +231,6 @@ export default function ProductClassifier() {
       RUBRO: product.RUBRO || "",
       "SUB RUBRO": product["SUB RUBRO"] || "",
     }, newClass);
-  };
-
-  const handleManualCategory = (id, field, value) => {
-    const updated = classified.map(p => {
-      if (p._id !== id) return p;
-      if (field === "categoria") {
-        const catObj = categories.find(c => c.nombre === value);
-        return {
-          ...p,
-          _categoria: value || null,
-          _subcategoria: null,
-          _category_id: catObj ? catObj.id : null,
-          _subcategory_id: null
-        };
-      }
-      const catObj = categories.find(c => c.nombre === p._categoria);
-      const subObj = catObj ? (catObj.subcategories || []).find(s => s.nombre === value) : null;
-      return {
-        ...p,
-        _subcategoria: value || null,
-        _subcategory_id: subObj ? subObj.id : null
-      };
-    });
-
-    setClassified(updated);
-    saveSession(updated);
   };
 
   // ─── TN Category correction (Tienda Nube) ──────────────────────────────────
@@ -364,23 +333,6 @@ export default function ProductClassifier() {
     saveSession(updated);
   };
 
-  const handleBulkCategory = (ids, catName) => {
-    const catObj = categories.find(c => c.nombre === catName);
-    const updated = classified.map(p => {
-      if (!ids.includes(p._id)) return p;
-      return {
-        ...p,
-        _categoria: catName || null,
-        _subcategoria: null,
-        _category_id: catObj ? catObj.id : null,
-        _subcategory_id: null
-      };
-    });
-
-    setClassified(updated);
-    saveSession(updated);
-  };
-
   const handleUpdateProductEnriched = (id, enrichedFields) => {
     const updated = classified.map(p =>
       p._id === id ? { ...p, _enriched: enrichedFields } : p
@@ -393,7 +345,7 @@ export default function ProductClassifier() {
   const handleRunAI = async () => {
     const apiKeyOverride = localStorage.getItem("clasificador_groq_key");
     
-    await runAI(classified, categories, apiKeyOverride, (batchResults) => {
+    await runAI(classified, apiKeyOverride, (batchResults) => {
       // Stream results in live to App state as they resolve
       setClassified(prev => {
         const copy = [...prev];
@@ -411,14 +363,17 @@ export default function ProductClassifier() {
               copy[idx]._class.reasons = [aiMatch.razon, ...copy[idx]._class.reasons];
               copy[idx]._source = "IA";
             }
-            if (aiMatch.categoria) {
-              copy[idx]._categoria = aiMatch.categoria;
-              copy[idx]._subcategoria = aiMatch.subcategoria || null;
-              copy[idx]._tipo = aiMatch.tipo || null;
-              const catObj = categories.find(c => c.nombre === aiMatch.categoria);
-              copy[idx]._category_id = catObj ? catObj.id : null;
-              const subObj = catObj ? (catObj.subcategories || []).find(s => s.nombre === aiMatch.subcategoria) : null;
-              copy[idx]._subcategory_id = subObj ? subObj.id : null;
+            // Apply TN category from AI result
+            if (aiMatch.categoria_tiendanube) {
+              const parts = aiMatch.categoria_tiendanube.split(" > ").map(x => x.trim());
+              copy[idx]._tn_nivel1 = parts[0] || "";
+              copy[idx]._tn_nivel2 = parts[1] || "";
+              copy[idx]._tn_nivel3 = parts[2] || "";
+              copy[idx]._tn_nivel4 = parts[3] || "";
+              copy[idx]._enriched = { ...(copy[idx]._enriched || {}), categoria_tiendanube: aiMatch.categoria_tiendanube };
+              if (copy[idx].CODIGO) {
+                saveTNCorrection(copy[idx].CODIGO, aiMatch.categoria_tiendanube, copy[idx].PRODUCTO || "");
+              }
             }
           }
         });
@@ -555,7 +510,6 @@ export default function ProductClassifier() {
           {!loading && view === "table" && (
             <TableView
               classifiedProducts={classified}
-              categories={categories}
               tnCategories={tnCategories}
               filter={filter}
               setFilter={setFilter}
@@ -564,10 +518,8 @@ export default function ProductClassifier() {
               page={page}
               setPage={setPage}
               onManualClassify={handleManualClassify}
-              onManualCategory={handleManualCategory}
               onTNCategory={handleTNCategory}
               onBulkClassify={handleBulkClassify}
-              onBulkCategory={handleBulkCategory}
               rules={rules}
               toast={toast}
             />
@@ -577,7 +529,6 @@ export default function ProductClassifier() {
           {!loading && view === "exportTN" && (
             <ExportView
               classifiedProducts={classified}
-              categories={categories}
               tnCategories={tnCategories}
               setView={setView}
               updateProductEnriched={handleUpdateProductEnriched}
@@ -627,8 +578,11 @@ export default function ProductClassifier() {
                       reasons: ["Historial cargado"],
                       score: p.confianza
                     },
-                    _categoria: p.slug ? p.categoria_tiendanube?.split(" > ")[1] || null : null,
-                    _subcategoria: p.slug ? p.categoria_tiendanube?.split(" > ")[2] || null : null,
+                    _tn_nivel1: p.categoria_tiendanube?.split(" > ")[0]?.trim() || null,
+                    _tn_nivel2: p.categoria_tiendanube?.split(" > ")[1]?.trim() || null,
+                    _tn_nivel3: p.categoria_tiendanube?.split(" > ")[2]?.trim() || null,
+                    _tn_nivel4: p.categoria_tiendanube?.split(" > ")[3]?.trim() || null,
+                    _tn_manual: !!p.tn_manual,
                     _enriched: p._enriched || null
                   }));
                   setClassified(restored);
@@ -666,17 +620,6 @@ export default function ProductClassifier() {
             />
           )}
 
-          {/* VIEW: CATEGORIES */}
-          {!loading && view === "categories" && (
-            <CategoriesView
-              categories={categories}
-              onSaveCategory={saveCategory}
-              onDeleteCategory={deleteCategoryItem}
-              classifiedProducts={classified}
-              toast={toast}
-            />
-          )}
-
           {/* VIEW: CLASSIFICATION */}
           {!loading && view === "classificationRules" && (
             <ClassificationView
@@ -705,7 +648,7 @@ export default function ProductClassifier() {
               classifiedProductsCount={classified.length}
               historyCount={historyList.length}
               correctionsCount={correctionsList.length}
-              categoriesCount={categories.length}
+              categoriesCount={tnCategories.length}
               onResetSession={() => {
                 setProducts([]);
                 setClassified([]);

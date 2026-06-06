@@ -6,7 +6,6 @@ import Pagination from "../components/Pagination";
 
 export default function TableView({
   classifiedProducts,
-  categories,
   tnCategories = [],
   filter,
   setFilter,
@@ -15,10 +14,8 @@ export default function TableView({
   page,
   setPage,
   onManualClassify,
-  onManualCategory,
   onTNCategory = null,
   onBulkClassify,
-  onBulkCategory,
   rules = [],
   toast = null,
 }) {
@@ -52,7 +49,6 @@ export default function TableView({
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkClass, setBulkClass] = useState("");
-  const [bulkCat, setBulkCat] = useState("");
 
   // Sidebar Drawer state
   const [drawerProduct, setDrawerProduct] = useState(null);
@@ -156,14 +152,6 @@ export default function TableView({
     setBulkClass("");
     setSelectedIds([]);
     toast?.success("Clasificación aplicada en masa.");
-  };
-
-  const handleBulkCategorySubmit = () => {
-    if (!bulkCat || selectedIds.length === 0) return;
-    onBulkCategory(selectedIds, bulkCat);
-    setBulkCat("");
-    setSelectedIds([]);
-    toast?.success("Categoría aplicada en masa.");
   };
 
   const handleSort = (field) => {
@@ -286,18 +274,6 @@ export default function TableView({
 
         {/* Dropdown Filters */}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
-          {/* Category Filter */}
-          {categories.length > 0 && (
-            <select
-              value={catFilter}
-              onChange={e => { setCatFilter(e.target.value); setPage(0); }}
-              style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", cursor: "pointer" }}
-            >
-              <option value="ALL">📂 Todas las Categorías</option>
-              {categories.map(c => <option key={c.id} value={c.nombre}>{c.icono} {c.nombre}</option>)}
-            </select>
-          )}
-
           {/* Source Filter */}
           <select
             value={sourceFilter}
@@ -387,26 +363,6 @@ export default function TableView({
               </button>
             </div>
 
-            {/* Bulk Category */}
-            {categories.length > 0 && (
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <select
-                  value={bulkCat}
-                  onChange={e => setBulkCat(e.target.value)}
-                  style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 12 }}
-                >
-                  <option value="">Categorizar en masa...</option>
-                  {categories.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
-                </select>
-                <button
-                  onClick={handleBulkCategorySubmit}
-                  disabled={!bulkCat}
-                  style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: bulkCat ? C.success : C.border, color: "#fff", fontSize: 11, fontWeight: 600, cursor: bulkCat ? "pointer" : "default" }}
-                >
-                  Aplicar
-                </button>
-              </div>
-            )}
             
             <button
               onClick={() => setSelectedIds([])}
@@ -582,42 +538,21 @@ export default function TableView({
                         </td>
                       )}
 
-                      {/* CATEGORIA */}
+                      {/* CATEGORIA — derivada de TN nivel2 */}
                       {visibleColumns.CATEGORIA && (
                         <td style={{ padding: "10px 14px" }}>
-                          {editingId === p._id ? (
-                            <select
-                              value={p._categoria || ""}
-                              onChange={e => onManualCategory(p._id, "categoria", e.target.value)}
-                              style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 12, outline: "none", width: 130 }}
-                            >
-                              <option value="">Sin categoría</option>
-                              {categories.map(c => <option key={c.id} value={c.nombre}>{c.icono} {c.nombre}</option>)}
-                            </select>
-                          ) : (
-                            <span style={{ fontSize: 12, fontWeight: 500, color: C.textMuted }}>{p._categoria || "—"}</span>
-                          )}
+                          <span style={{ fontSize: 12, fontWeight: 500, color: C.textMuted }}>
+                            {p._tn_nivel2 || p._enriched?.categoria_tiendanube?.split(' > ')[1] || p._categoria || "—"}
+                          </span>
                         </td>
                       )}
 
-                      {/* SUBCATEGORIA */}
+                      {/* SUBCATEGORIA — derivada de TN nivel3 */}
                       {visibleColumns.SUBCATEGORIA && (
                         <td style={{ padding: "10px 14px" }}>
-                          {editingId === p._id ? (
-                            <select
-                              value={p._subcategoria || ""}
-                              onChange={e => onManualCategory(p._id, "subcategoria", e.target.value)}
-                              disabled={!p._categoria}
-                              style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 12, outline: "none", width: 130 }}
-                            >
-                              <option value="">Sin subcategoría</option>
-                              {(categories.find(c => c.nombre === p._categoria)?.subcategories || []).map(sub => (
-                                <option key={sub.id} value={sub.nombre}>{sub.nombre}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span style={{ fontSize: 12, color: C.textDim }}>{p._subcategoria || "—"}</span>
-                          )}
+                          <span style={{ fontSize: 12, color: C.textDim }}>
+                            {p._tn_nivel3 || p._enriched?.categoria_tiendanube?.split(' > ')[2] || p._subcategoria || "—"}
+                          </span>
                         </td>
                       )}
 
@@ -797,11 +732,13 @@ export default function TableView({
                 />
               </div>
               
-              {drawerProduct._categoria && (
+              {(drawerProduct._tn_nivel2 || drawerProduct._enriched?.categoria_tiendanube) && (
                 <div>
-                  <div style={{ color: C.textDim, fontSize: 11, fontWeight: 600, textTransform: "uppercase", marginBottom: 2 }}>Jerarquía e-commerce</div>
-                  <div style={{ color: C.text, fontWeight: 500 }}>
-                    {drawerProduct._categoria} {drawerProduct._subcategoria && `> ${drawerProduct._subcategoria}`}
+                  <div style={{ color: C.textDim, fontSize: 11, fontWeight: 600, textTransform: "uppercase", marginBottom: 2 }}>Categoría Tienda Nube</div>
+                  <div style={{ color: C.text, fontSize: 12 }}>
+                    {drawerProduct._enriched?.categoria_tiendanube
+                      || [drawerProduct._tn_nivel2, drawerProduct._tn_nivel3].filter(Boolean).join(" > ")
+                      || "—"}
                   </div>
                 </div>
               )}

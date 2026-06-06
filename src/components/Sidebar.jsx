@@ -27,8 +27,7 @@ export default function Sidebar({ view, setView, hasActiveSession, historyCount 
         { id: "history", label: "Historial", icon: "🗂", badge: historyCount },
         { id: "learning", label: "Aprendizaje", icon: "🧠", badge: correctionsCount },
         { id: "tnLearning", label: "Aprendizaje TN", icon: "🏷", badge: tnCorrectionsCount },
-        { id: "categories", label: "Categorías", icon: "📁" },
-        { id: "tnCategories", label: "Categorías TN", icon: "🛒" },
+        { id: "tnCategories", label: "Categorías TN", icon: "🛍" },
       ]
     },
     {

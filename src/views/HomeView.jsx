@@ -193,7 +193,7 @@ export default function HomeView({
             {[
               { label: "Nueva Carga", icon: "📤", desc: "Pegá datos o subí CSV", view: "upload", color: C.accent },
               { label: "Aprendizaje", icon: "🧠", desc: "Gestión de memoria", view: "learning", color: "#06b6d4" },
-              { label: "Categorías", icon: "📁", desc: "Árbol jerárquico", view: "categories", color: "#10b981" },
+              { label: "Categorías TN", icon: "🛍", desc: "Árbol Tienda Nube", view: "tnCategories", color: "#10b981" },
               { label: "Ajustes", icon: "🔧", desc: "API Keys y e-commerce", view: "settings", color: "#64748b" },
             ].map(shortcut => (
               <div
@@ -229,12 +229,13 @@ export default function HomeView({
           </div>
 
           {/* Dynamic Active Session categories */}
-          {hasActiveSession && classifiedProducts.some(p => p._categoria) && (
+          {hasActiveSession && classifiedProducts.some(p => p._tn_nivel2 || p._enriched?.categoria_tiendanube) && (
             <div style={{ marginTop: 12 }}>
               {(() => {
                 const catCounts = {};
                 classifiedProducts.forEach(p => {
-                  if (p._categoria) catCounts[p._categoria] = (catCounts[p._categoria] || 0) + 1;
+                  const cat = p._tn_nivel2 || p._enriched?.categoria_tiendanube?.split(' > ')[1] || p._categoria || null;
+                  if (cat) catCounts[cat] = (catCounts[cat] || 0) + 1;
                 });
                 const chartItems = Object.entries(catCounts)
                   .sort((a, b) => b[1] - a[1])

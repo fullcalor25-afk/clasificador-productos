@@ -221,8 +221,8 @@ export function exportCSV(toExport, CLS) {
     (p._class.confidence || 0) + "%",
     cleanField(p._manualClass ? "APRENDIDO" : (p._source || "REGLAS")),
     cleanField((p._class.reasons || []).join("; ")),
-    cleanField(p._categoria),
-    cleanField(p._subcategoria),
+    cleanField(p._tn_nivel2 || p._enriched?.categoria_tiendanube?.split(' > ')[1] || p._categoria || ''),
+    cleanField(p._tn_nivel3 || p._enriched?.categoria_tiendanube?.split(' > ')[2] || p._subcategoria || ''),
     cleanField(p._tipo),
   ]);
   const csv = [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");

@@ -72,11 +72,13 @@ Definido en `src/index.css`. El objeto `C` en `constants.js` referencia las vari
 | `--warning` / `--warning-bg` | Amarillo advertencia |
 
 ### Persistencia de sesión
-- `localStorage` key `hvac_session`: JSON con `{ products, classified, stats, aiResults, savedAt, count }`. Expira a 7 días.
+- `localStorage` key `hvac_session`: JSON con `{ classified, savedAt }`. Expira a 7 días.
 - `localStorage` key `hvac_last_view`: última vista activa.
 - `localStorage` key `clasificador_groq_key`: API key de Groq ingresada en Ajustes.
+- `localStorage` key `tn_categories_cache`: cache de `tiendanube_categories` (única fuente de verdad).
+- `localStorage` key `tn_corrections_cache`: mapa `{ [codigo.toLowerCase()]: categoria_tiendanube }`.
 - `localStorage` keys `tn_default_stock`, `tn_show_no_price`, `tn_sku_prefix`: configuración de exportación TN.
-- Al cargar la app: si hay sesión guardada no expirada, se muestra banner de restaurar.
+- **Eliminado**: `categories_cache` (ya no se usa, se limpia en el mount del App).
 
 ---
 
@@ -91,12 +93,14 @@ Definido en `src/index.css`. El objeto `C` en `constants.js` referencia las vari
 ### `src/utils.js`
 - `classifyProduct(product, rules)` — scoring con reglas dinámicas; no modificar lógica core
 - `processProductsChunked` — re-exportada desde hook (backwards compat)
-- `exportCSV(products)` — CSV completo con columnas FUENTE, CATEGORIA, SUBCATEGORIA, TIPO
+- `exportCSV(products)` — CSV completo; CATEGORIA = `_tn_nivel2`, SUBCATEGORIA = `_tn_nivel3`
 - `exportHistoryCSV(products, includeTN)` — CSV de historial; con `includeTN=true` incluye 12 columnas TN
 - `exportHistoryTiendaNubeCSV(histProducts)` — adapta campos lowercase → exportTiendaNubeCSV
-- `exportTiendaNubeCSV(products)` — CSV Tienda Nube (24 cols, `;`, UTF-8 BOM)
+- `exportTiendaNubeCSV(products)` — CSV Tienda Nube (24 cols, `;`, UTF-8 BOM); usa `getCategoriaTN()`
+- `getCategoriaTN(product, tnCategories)` — prioridad: `_tn_manual` > `_enriched` > keyword matching
 - `getProductPrice(p)` — busca precio en variantes PRECIO/precio/Precio/PRICE/price
 - `fetchWithTimeout(url, options, timeout=30000)` — AbortController con timeout 30s
+- `apiFetch(url, options)` — wrapper sobre fetchWithTimeout con Content-Type JSON
 - `slugify(text)`, `buildCategoriaTN(product)`, `fmtDate(iso)`, `parseTabular(text)`, `wait(ms)`
 
 ---
@@ -107,11 +111,22 @@ Definido en `src/index.css`. El objeto `C` en `constants.js` referencia las vari
 ```js
 // processProductsChunked(products, corrections, rules, chunkSize=200, progressCb)
 //   → no bloquea el hilo principal; llama progressCb(procesados, total) cada chunk
-// runAI(products, categories, groqApiKeyOverride, onResultsReady)
-//   → llama /.netlify/functions/classify en batches; maneja 429/503 con backoff;
-//      401 y 5 errores consecutivos abortan; llama onResultsReady(batchResults)
+// runAI(products, groqApiKeyOverride, onResultsReady)
+//   → llama /api/classify en batches; classify.js carga tiendanube_categories de Supabase
+//   → resultados incluyen categoria_tiendanube; App.jsx aplica _tn_nivel1/2/3/4 al producto
+//   → 401 y 5 errores consecutivos abortan; llama onResultsReady(batchResults)
 // loadRules()
-//   → GET /.netlify/functions/rules; fallback a DEFAULT_RULES si 404
+//   → GET /api/rules; fallback a DEFAULT_RULES si 404
+```
+
+### `src/hooks/useCategories.js` ⚠️ DEPRECATED
+No usar en código nuevo. Las categorías internas (tabla `categories`/`subcategories` de Supabase) ya no se cargan en la app. La única fuente de verdad para jerarquía de categorías es `tiendanube_categories` via `useTnCategories`.
+
+### `src/hooks/useTnCategories.js`
+```js
+// Fuente de verdad única para categorías de la app.
+// Cache localStorage key: 'tn_categories_cache'
+// loadTnCategories(), saveTnCategory(formData), deleteTnCategory(id)
 ```
 
 ### `src/hooks/useCorrections.js`
@@ -136,14 +151,21 @@ Definido en `src/index.css`. El objeto `C` en `constants.js` referencia las vari
 ## Netlify Functions
 
 ### `classify.js`
-- POST: clasifica hasta 15 productos con Groq; lee correcciones de Supabase; acepta `categories` para que la IA asigne categoría/subcategoría/tipo.
+- POST: clasifica hasta 15 productos con Groq; lee correcciones de `clasificaciones` (Supabase); **carga `tiendanube_categories` de Supabase** para enriquecer el prompt; devuelve `categoria_tiendanube` (path completo) en cada resultado.
 
 ### `enrich.js`
 - POST: enriquece hasta 15 productos para Tienda Nube; genera slug, nombre_limpio, marca, descripcion_html, tags, seo_titulo, seo_descripcion, peso_kg, alto_cm, ancho_cm, profundidad_cm, categoria_tiendanube.
 
-### `categories.js`
-- GET: devuelve árbol anidado `[{ ...category, subcategories: [...] }]`
-- POST/PUT/DELETE: CRUD según `?type=category|subcategory&id=X`
+### `categories.js` ⚠️ DEPRECATED
+- Archivo mantenido en disco pero ya no se usa desde el frontend. No eliminar (puede tener datos históricos).
+- La jerarquía de categorías ahora vive en `tiendanube_categories` via `api/tn-categories.js`.
+
+### `tn-categories.js`
+- GET/POST/PUT/DELETE sobre `tiendanube_categories` (nivel1–nivel4, keywords, activa, orden)
+
+### `tn-corrections.js`
+- GET/POST/DELETE sobre `tn_corrections` (codigo UNIQUE, categoria_tiendanube, producto)
+- Se aplican al cargar productos: si `codigo` match → asigna `_tn_nivel1/2/3/4` + `_tn_manual=true`
 
 ### `corrections.js`
 - **GET** `?page=N&limit=N&search=term` — lista paginada con búsqueda por código/producto
@@ -191,11 +213,18 @@ Definido en `src/index.css`. El objeto `C` en `constants.js` referencia las vari
 — Columnas TN (nullable): `slug`, `nombre_limpio`, `marca`, `descripcion_html`, `tags` (JSON string), `seo_titulo`, `seo_descripcion`, `peso_kg`, `alto_cm`, `ancho_cm`, `profundidad_cm`, `categoria_tiendanube`
 — SQL de migración: `supabase_todo.sql`
 
-### `categories`
-`id`, `nombre`, `color` (hex), `icono` (emoji), `orden`, `activa`, `created_at`
+### `categories` + `subcategories` ⚠️ DEPRECATED
+Tablas mantenidas en Supabase pero ya no usadas por el frontend. No eliminar.
 
-### `subcategories`
-`id`, `category_id` (FK → categories CASCADE), `nombre`, `descripcion`, `keywords`, `orden`, `activa`, `created_at`
+### `tiendanube_categories`
+`id`, `nivel1`, `nivel2`, `nivel3`, `nivel4` (TEXT, max 4 niveles), `keywords`, `activa`, `orden`, `created_at`
+— **Única fuente de verdad para jerarquía de categorías**
+— Usada en: `TnCategoriesView`, `useTnCategories`, `classify.js` (prompt), `enrich.js` (prompt), `ExportView`
+
+### `tn_corrections`
+`id`, `codigo` (UNIQUE), `producto`, `categoria_tiendanube` (path completo), `created_at`, `updated_at`
+— Correcciones manuales de categoría TN; se aplican al cargar productos via `handleProductsLoaded`
+— SQL: `supabase_tn_corrections.sql`
 
 ### `classification_rules`
 `id`, `tipo` (REPUESTO|ACCESORIO|PRODUCTO_COMPLETO|SERVICIO), `nivel` (keyword|rubro_pattern|subrubro_pattern), `valor`, `peso`, `activa`, `created_at`
@@ -235,8 +264,9 @@ Definido en `src/index.css`. El objeto `C` en `constants.js` referencia las vari
 | `exportTN` | Tienda Nube | 3 pasos: selección → enriquecimiento IA → preview + descarga CSV |
 | `history` | Historial | Lista con filtros de fecha · badges `has_enriched` · acciones ver/renombrar/eliminar |
 | `historyDetail` | Historial · [nombre] | Tabla de productos · exportar CSV · exportar CSV TN (si enriquecido) · eliminar |
-| `learning` | Aprendizaje | Tabla paginada de correcciones · búsqueda · eliminar individual · importar CSV · borrar todo |
-| `categories` | Categorías | Árbol categorías/subcategorías · CRUD completo con modales |
+| `learning` | Aprendizaje | Tabla paginada de correcciones de clasificación · búsqueda · eliminar · importar CSV · borrar todo |
+| `tnLearning` | Aprendizaje TN | Tabla de correcciones de categoría Tienda Nube · edición en cascada · eliminar · exportar CSV |
+| `tnCategories` | Categorías TN 🛍 | Árbol jerárquico de `tiendanube_categories` (nivel1–nivel4) · CRUD inline · keywords chips |
 | `classificationRules` | Reglas | CRUD de reglas dinámicas en Supabase · toggle activa/inactiva · reset a defaults |
 | `settings` | Ajustes | API key Groq · opciones CSV Tienda Nube (stock, SKU prefix) · limpiar sesión |
 
