@@ -7,6 +7,7 @@ export default function ExportView({
   tnCategories = [],
   setView,
   updateProductEnriched,
+  onProductCorrected = null,
   loadTnCategories = null,
   toast = null,
 }) {
@@ -182,6 +183,11 @@ export default function ExportView({
   const handleIndividualSave = (id, fields) => {
     if (updateProductEnriched) {
       updateProductEnriched(id, fields);
+    }
+    // Persistir en Supabase
+    if (onProductCorrected) {
+      const product = classifiedProducts.find(p => p._id === id);
+      if (product) onProductCorrected({ ...product, _enriched: fields });
     }
     setIndividualEditingProduct(null);
   };
@@ -521,27 +527,35 @@ export default function ExportView({
                         { nKey: "prop1_nombre", vKey: "prop1_valor", placeholder: "Marca compatible" },
                         { nKey: "prop2_nombre", vKey: "prop2_valor", placeholder: "Medida/Capacidad" },
                         { nKey: "prop3_nombre", vKey: "prop3_valor", placeholder: "Tipo/Modelo/Conexión" },
-                      ].map(({ nKey, vKey, placeholder }) => (
-                        <div key={nKey} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                          <input
-                            value={p._enriched[nKey] || ""}
-                            onChange={e => {
-                              if (updateProductEnriched) updateProductEnriched(p._id, { ...p._enriched, [nKey]: e.target.value });
-                            }}
-                            placeholder={placeholder}
-                            style={{ flex: "0 0 110px", padding: "3px 6px", borderRadius: 5, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 10 }}
-                          />
-                          <span style={{ fontSize: 10, color: C.textDim }}>:</span>
-                          <input
-                            value={p._enriched[vKey] || ""}
-                            onChange={e => {
-                              if (updateProductEnriched) updateProductEnriched(p._id, { ...p._enriched, [vKey]: e.target.value });
-                            }}
-                            placeholder="valor..."
-                            style={{ flex: 1, padding: "3px 6px", borderRadius: 5, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 10 }}
-                          />
-                        </div>
-                      ))}
+                      ].map(({ nKey, vKey, placeholder }) => {
+                        const handlePropChange = (key, val) => {
+                          const newEnriched = { ...p._enriched, [key]: val };
+                          if (updateProductEnriched) updateProductEnriched(p._id, newEnriched);
+                        };
+                        const handlePropBlur = () => {
+                          // Persistir en Supabase al salir del campo
+                          if (onProductCorrected) onProductCorrected({ ...p });
+                        };
+                        return (
+                          <div key={nKey} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                            <input
+                              value={p._enriched[nKey] || ""}
+                              onChange={e => handlePropChange(nKey, e.target.value)}
+                              onBlur={handlePropBlur}
+                              placeholder={placeholder}
+                              style={{ flex: "0 0 110px", padding: "3px 6px", borderRadius: 5, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 10 }}
+                            />
+                            <span style={{ fontSize: 10, color: C.textDim }}>:</span>
+                            <input
+                              value={p._enriched[vKey] || ""}
+                              onChange={e => handlePropChange(vKey, e.target.value)}
+                              onBlur={handlePropBlur}
+                              placeholder="valor..."
+                              style={{ flex: 1, padding: "3px 6px", borderRadius: 5, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 10 }}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
 
                     {/* Dims + edit modal */}

@@ -103,17 +103,29 @@ export default async function handler(req, res) {
     const rubro         = body.rubro    || ''
     const sub_rubro     = body.sub_rubro || ''
 
-    if (!codigo || !clasificacion)
-      return res.status(400).json({ error: 'Se requieren codigo y clasificacion' })
+    if (!codigo)
+      return res.status(400).json({ error: 'Se requiere codigo' })
 
-    const payload = {
-      codigo,
-      producto,
-      rubro,
-      sub_rubro,
-      clasificacion_corregida: clasificacion,
-      updated_at: new Date().toISOString(),
-    }
+    // Base payload — solo incluir campos no vacíos (COALESCE: no sobreescribir con null)
+    const payload = { codigo, updated_at: new Date().toISOString() }
+    if (clasificacion) payload.clasificacion_corregida = clasificacion
+    if (producto)  payload.producto  = producto
+    if (rubro)     payload.rubro     = rubro
+    if (sub_rubro) payload.sub_rubro = sub_rubro
+
+    // Campos enriquecidos opcionales — solo si tienen valor
+    const enrichedFields = [
+      'nombre_limpio', 'marca',
+      'prop1_nombre', 'prop1_valor',
+      'prop2_nombre', 'prop2_valor',
+      'prop3_nombre', 'prop3_valor',
+      'peso_kg', 'alto_cm', 'ancho_cm', 'profundidad_cm',
+      'categoria_tiendanube',
+    ]
+    enrichedFields.forEach(f => {
+      const v = body[f]
+      if (v !== null && v !== undefined && v !== '') payload[f] = v
+    })
 
     const r = await fetch(SUPABASE_URL + '/rest/v1/corrections', {
       method: 'POST',

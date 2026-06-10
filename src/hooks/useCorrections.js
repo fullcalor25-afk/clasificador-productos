@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { fetchWithTimeout } from "../utils";
 
 export default function useCorrections() {
-  const [corrections, setCorrections] = useState({});
+  const [corrections, setCorrections] = useState({});          // {codigo: clasificacion_string}
+  const [correctionsFull, setCorrectionsFull] = useState({}); // {codigo: fullCorrectionObj}
   const [correctionsList, setCorrectionsList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -18,11 +19,16 @@ export default function useCorrections() {
       const data = await res.json();
       if (Array.isArray(data)) {
         const map = {};
+        const fullMap = {};
         data.forEach(c => {
-          if (c.codigo) map[c.codigo.toLowerCase()] = c.clasificacion_corregida;
+          if (c.codigo) {
+            map[c.codigo.toLowerCase()] = c.clasificacion_corregida;
+            fullMap[c.codigo.toLowerCase()] = c;
+          }
         });
         correctionsRef.current = map;
         setCorrections(map);
+        setCorrectionsFull(fullMap);
         setCorrectionsList(data);
         setLoaded(true);
       }
@@ -159,6 +165,7 @@ export default function useCorrections() {
 
   return {
     corrections,
+    correctionsFull,
     correctionsList,
     correctionsRef,
     loading,

@@ -57,6 +57,7 @@ export default function ProductClassifier() {
   // ─── Custom database / engine hooks ───────────────────────────────────────
   const {
     corrections,
+    correctionsFull,
     correctionsList,
     loaded: correctionsLoaded,
     saveCorrection,
@@ -189,7 +190,41 @@ export default function ProductClassifier() {
       (current, total) => setProcessingProgress({ current, total })
     );
 
-    // Aplicar correcciones TN (categoría Tienda Nube aprendida)
+    // Aplicar datos enriquecidos aprendidos de correcciones completas
+    const fullCorrs = correctionsFull;
+    results.forEach(r => {
+      const key = (r.CODIGO || "").toLowerCase();
+      const fc = fullCorrs[key];
+      if (fc && (fc.nombre_limpio || fc.marca || fc.prop1_nombre || fc.categoria_tiendanube || fc.peso_kg)) {
+        const existing = r._enriched || {};
+        r._enriched = {
+          ...existing,
+          ...(fc.categoria_tiendanube && { categoria_tiendanube: fc.categoria_tiendanube }),
+          ...(fc.nombre_limpio  && { nombre_limpio:  fc.nombre_limpio  }),
+          ...(fc.marca          && { marca:          fc.marca          }),
+          ...(fc.prop1_nombre   && { prop1_nombre:   fc.prop1_nombre   }),
+          ...(fc.prop1_valor    && { prop1_valor:    fc.prop1_valor    }),
+          ...(fc.prop2_nombre   && { prop2_nombre:   fc.prop2_nombre   }),
+          ...(fc.prop2_valor    && { prop2_valor:    fc.prop2_valor    }),
+          ...(fc.prop3_nombre   && { prop3_nombre:   fc.prop3_nombre   }),
+          ...(fc.prop3_valor    && { prop3_valor:    fc.prop3_valor    }),
+          ...(fc.peso_kg        && { peso_kg:        fc.peso_kg        }),
+          ...(fc.alto_cm        && { alto_cm:        fc.alto_cm        }),
+          ...(fc.ancho_cm       && { ancho_cm:       fc.ancho_cm       }),
+          ...(fc.profundidad_cm && { profundidad_cm: fc.profundidad_cm }),
+        };
+        if (fc.categoria_tiendanube) {
+          const parts = fc.categoria_tiendanube.split(" > ").map(x => x.trim());
+          r._tn_nivel1 = r._tn_nivel1 || parts[0] || "";
+          r._tn_nivel2 = r._tn_nivel2 || parts[1] || "";
+          r._tn_nivel3 = r._tn_nivel3 || parts[2] || "";
+          r._tn_nivel4 = r._tn_nivel4 || parts[3] || "";
+        }
+        r._learned = true;
+      }
+    });
+
+    // Aplicar correcciones TN (categoría Tienda Nube — tiene prioridad)
     const tnCorrs = tnCorrections;
     results.forEach(r => {
       const key = (r.CODIGO || "").toLowerCase();
@@ -224,13 +259,14 @@ export default function ProductClassifier() {
     recalculateStats(updated);
     saveSession(updated);
 
-    // Save manual correction to database
+    // Save correction to database (clasif + cualquier dato enriquecido)
     saveCorrection({
       CODIGO: product.CODIGO,
       PRODUCTO: product.PRODUCTO || "",
       RUBRO: product.RUBRO || "",
       "SUB RUBRO": product["SUB RUBRO"] || "",
     }, newClass);
+    saveFullCorrection({ ...product, _manualClass: newClass });
   };
 
   // ─── TN Category correction (Tienda Nube) ──────────────────────────────────
@@ -254,6 +290,35 @@ export default function ProductClassifier() {
     } catch (e) {
       console.warn("[saveTNCorrection]", e.message);
     }
+  };
+
+  // ─── saveFullCorrection: persiste TODOS los campos del producto en corrections ──
+  const saveFullCorrection = (product) => {
+    if (!product?.CODIGO) return;
+    const e = product._enriched || {};
+    apiFetch("/api/corrections", {
+      method: "POST",
+      body: JSON.stringify({
+        codigo:                  product.CODIGO,
+        producto:                product.PRODUCTO || "",
+        rubro:                   product.RUBRO    || "",
+        sub_rubro:               product["SUB RUBRO"] || "",
+        clasificacion_corregida: product._manualClass || product._class?.classification || "",
+        categoria_tiendanube:    e.categoria_tiendanube || "",
+        nombre_limpio:           e.nombre_limpio  || "",
+        marca:                   e.marca          || "",
+        prop1_nombre:            e.prop1_nombre   || null,
+        prop1_valor:             e.prop1_valor    || null,
+        prop2_nombre:            e.prop2_nombre   || null,
+        prop2_valor:             e.prop2_valor    || null,
+        prop3_nombre:            e.prop3_nombre   || null,
+        prop3_valor:             e.prop3_valor    || null,
+        peso_kg:                 e.peso_kg        || null,
+        alto_cm:                 e.alto_cm        || null,
+        ancho_cm:                e.ancho_cm       || null,
+        profundidad_cm:          e.profundidad_cm || null,
+      }),
+    }).catch(err => console.warn("[saveFullCorrection]", err.message));
   };
 
   const deleteTNCorrection = async (id, codigo) => {
@@ -303,7 +368,10 @@ export default function ProductClassifier() {
       if (nivel === "nivel4") { n4 = value; }
       const catPath = [n1, n2, n3, n4].filter(Boolean).join(" > ");
       const newEnriched = { ...(p._enriched || {}), categoria_tiendanube: catPath };
-      if (p.CODIGO && catPath) saveTNCorrection(p.CODIGO, catPath, p.PRODUCTO || "");
+      if (p.CODIGO && catPath) {
+        saveTNCorrection(p.CODIGO, catPath, p.PRODUCTO || "");
+        saveFullCorrection({ ...p, _enriched: newEnriched });
+      }
       return { ...p, _tn_nivel1: n1, _tn_nivel2: n2, _tn_nivel3: n3, _tn_nivel4: n4, _enriched: newEnriched, _tn_manual: true };
     }));
   };
@@ -532,6 +600,7 @@ export default function ProductClassifier() {
               tnCategories={tnCategories}
               setView={setView}
               updateProductEnriched={handleUpdateProductEnriched}
+              onProductCorrected={saveFullCorrection}
               loadTnCategories={loadTnCategories}
               toast={toast}
             />

@@ -18,6 +18,7 @@ export default function LearningView({
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [editingId, setEditingId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
   
   // Modals state
   const [showImportModal, setShowImportModal] = useState(false);
@@ -202,91 +203,118 @@ export default function LearningView({
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
             <thead>
               <tr style={{ background: C.surface2, borderBottom: `1px solid ${C.border}` }}>
-                <th style={{ padding: "12px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Código</th>
-                <th style={{ padding: "12px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Producto original</th>
-                <th style={{ padding: "12px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Filtros (Rubro)</th>
-                <th style={{ padding: "12px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Clasificación asignada</th>
-                <th style={{ padding: "12px 14px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Fecha</th>
-                <th style={{ padding: "12px 14px", textAlign: "center", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Acción</th>
+                <th style={{ padding: "10px 12px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Código</th>
+                <th style={{ padding: "10px 12px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Producto</th>
+                <th style={{ padding: "10px 12px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Clasificación</th>
+                <th style={{ padding: "10px 12px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Categoría TN</th>
+                <th style={{ padding: "10px 12px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Marca compatible</th>
+                <th style={{ padding: "10px 12px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Medida</th>
+                <th style={{ padding: "10px 12px", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Fecha</th>
+                <th style={{ padding: "10px 12px", textAlign: "center", color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Acción</th>
               </tr>
             </thead>
             <tbody>
               {pagedCorrections.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: "40px 20px", textAlign: "center", color: C.textDim }}>
+                  <td colSpan={8} style={{ padding: "40px 20px", textAlign: "center", color: C.textDim }}>
                     No hay correcciones memorizadas.
                   </td>
                 </tr>
               ) : (
                 pagedCorrections.map((c, idx) => {
                   const cfg = CLS[c.clasificacion_corregida] || CLS.OTRO;
+                  const isExpanded = expandedId === (c.id || idx);
+                  const hasEnriched = !!(c.nombre_limpio || c.marca || c.prop1_nombre || c.peso_kg || c.categoria_tiendanube);
+                  // Último nivel de la categoría TN para mostrar compacto
+                  const catLastLevel = c.categoria_tiendanube ? c.categoria_tiendanube.split(" > ").pop() : null;
                   return (
-                    <tr key={c.id || idx} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td style={{ padding: "8px 14px", fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: C.textDim }}>
-                        {c.codigo}
-                      </td>
-                      <td style={{ padding: "8px 14px", fontWeight: 600, color: C.text }}>
-                        {c.producto || "—"}
-                      </td>
-                      <td style={{ padding: "8px 14px", color: C.textMuted }}>
-                        <div>{c.rubro || "—"}</div>
-                        {c.sub_rubro && <div style={{ fontSize: 11, color: C.textDim }}>{c.sub_rubro}</div>}
-                      </td>
-                      <td style={{ padding: "8px 14px" }}>
-                        {editingId === c.id ? (
-                          <select
-                            value={c.clasificacion_corregida}
-                            onChange={e => {
-                              onSaveCorrection({ CODIGO: c.codigo, PRODUCTO: c.producto, RUBRO: c.rubro, "SUB RUBRO": c.sub_rubro }, e.target.value);
-                              setEditingId(null);
-                            }}
-                            style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.accent}`, background: C.surface, color: C.text, fontSize: 12, outline: "none" }}
-                          >
-                            {Object.keys(CLS).map(k => (
-                              <option key={k} value={k}>{CLS[k].label}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 5,
-                            padding: "4px 10px",
-                            borderRadius: 8,
-                            fontSize: 12,
-                            fontWeight: 600,
-                            background: `${cfg.color}12`,
-                            color: cfg.color,
-                            border: `1px solid ${cfg.color}25`
-                          }}>
-                            {cfg.icon} {cfg.label}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ padding: "8px 14px", fontSize: 11, color: C.textDim }}>
-                        {fmtDate(c.updated_at)}
-                      </td>
-                      <td style={{ padding: "8px 14px", textAlign: "center" }}>
-                        <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
-                          <button
-                            onClick={() => setEditingId(editingId === c.id ? null : c.id)}
-                            style={{ background: "transparent", border: `1px solid ${C.border}`, padding: "4px 8px", borderRadius: 6, color: C.textMuted, cursor: "pointer", fontSize: 11 }}
-                          >
-                            {editingId === c.id ? "✕" : "✏️"}
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`¿Eliminar la memoria aprendida para el código ${c.codigo}?`)) {
-                                onDeleteCorrection(c.id, c.codigo);
-                              }
-                            }}
-                            style={{ background: "transparent", border: `1px solid ${C.danger}40`, padding: "4px 8px", borderRadius: 6, color: C.danger, cursor: "pointer", fontSize: 11 }}
-                          >
-                            🗑
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                    <React.Fragment key={c.id || idx}>
+                      <tr style={{ borderBottom: isExpanded ? "none" : `1px solid ${C.border}`, background: isExpanded ? `${C.accent}06` : "transparent" }}>
+                        <td style={{ padding: "8px 12px", fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: C.textDim }}>
+                          {c.codigo}
+                        </td>
+                        <td style={{ padding: "8px 12px", fontWeight: 600, color: C.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {c.nombre_limpio || c.producto || "—"}
+                        </td>
+                        <td style={{ padding: "8px 12px" }}>
+                          {editingId === c.id ? (
+                            <select
+                              value={c.clasificacion_corregida}
+                              onChange={e => {
+                                onSaveCorrection({ CODIGO: c.codigo, PRODUCTO: c.producto, RUBRO: c.rubro, "SUB RUBRO": c.sub_rubro }, e.target.value);
+                                setEditingId(null);
+                              }}
+                              style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.accent}`, background: C.surface, color: C.text, fontSize: 12, outline: "none" }}
+                            >
+                              {Object.keys(CLS).map(k => (
+                                <option key={k} value={k}>{CLS[k].label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: `${cfg.color}12`, color: cfg.color, border: `1px solid ${cfg.color}25` }}>
+                              {cfg.icon} {cfg.label}
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: "8px 12px", fontSize: 11, color: C.textMuted, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {catLastLevel || <span style={{ color: C.textDim }}>—</span>}
+                        </td>
+                        <td style={{ padding: "8px 12px", fontSize: 11, color: C.textMuted }}>
+                          {c.prop1_valor || <span style={{ color: C.textDim }}>—</span>}
+                        </td>
+                        <td style={{ padding: "8px 12px", fontSize: 11, color: C.textMuted }}>
+                          {c.prop2_valor || <span style={{ color: C.textDim }}>—</span>}
+                        </td>
+                        <td style={{ padding: "8px 12px", fontSize: 11, color: C.textDim }}>
+                          {fmtDate(c.updated_at)}
+                        </td>
+                        <td style={{ padding: "8px 12px", textAlign: "center" }}>
+                          <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                            {hasEnriched && (
+                              <button
+                                onClick={() => setExpandedId(isExpanded ? null : (c.id || idx))}
+                                style={{ background: "transparent", border: `1px solid ${C.border}`, padding: "3px 7px", borderRadius: 6, color: C.accent, cursor: "pointer", fontSize: 10, fontWeight: 700 }}
+                                title="Ver detalles"
+                              >
+                                {isExpanded ? "▲" : "▼"}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setEditingId(editingId === c.id ? null : c.id)}
+                              style={{ background: "transparent", border: `1px solid ${C.border}`, padding: "3px 7px", borderRadius: 6, color: C.textMuted, cursor: "pointer", fontSize: 11 }}
+                            >
+                              {editingId === c.id ? "✕" : "✏️"}
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`¿Eliminar la memoria aprendida para el código ${c.codigo}?`)) {
+                                  onDeleteCorrection(c.id, c.codigo);
+                                }
+                              }}
+                              style={{ background: "transparent", border: `1px solid ${C.danger}40`, padding: "3px 7px", borderRadius: 6, color: C.danger, cursor: "pointer", fontSize: 11 }}
+                            >
+                              🗑
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                          <td colSpan={8} style={{ padding: "10px 14px", background: `${C.accent}06` }}>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12 }}>
+                              {c.nombre_limpio && <div><span style={{ color: C.textDim, fontWeight: 600 }}>Nombre: </span><span style={{ color: C.text }}>{c.nombre_limpio}</span></div>}
+                              {c.marca && <div><span style={{ color: C.textDim, fontWeight: 600 }}>Marca fab.: </span><span style={{ color: C.text }}>{c.marca}</span></div>}
+                              {c.categoria_tiendanube && <div><span style={{ color: C.textDim, fontWeight: 600 }}>Categoría: </span><span style={{ color: C.text }}>{c.categoria_tiendanube}</span></div>}
+                              {c.prop1_nombre && <div><span style={{ color: C.textDim, fontWeight: 600 }}>{c.prop1_nombre}: </span><span style={{ color: C.text }}>{c.prop1_valor || "—"}</span></div>}
+                              {c.prop2_nombre && <div><span style={{ color: C.textDim, fontWeight: 600 }}>{c.prop2_nombre}: </span><span style={{ color: C.text }}>{c.prop2_valor || "—"}</span></div>}
+                              {c.prop3_nombre && <div><span style={{ color: C.textDim, fontWeight: 600 }}>{c.prop3_nombre}: </span><span style={{ color: C.text }}>{c.prop3_valor || "—"}</span></div>}
+                              {c.peso_kg && <div><span style={{ color: C.textDim, fontWeight: 600 }}>Peso: </span><span style={{ color: C.text }}>{c.peso_kg} kg</span></div>}
+                              {c.alto_cm && <div><span style={{ color: C.textDim, fontWeight: 600 }}>Dims: </span><span style={{ color: C.text }}>{c.alto_cm}×{c.ancho_cm}×{c.profundidad_cm} cm</span></div>}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })
               )}
