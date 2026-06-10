@@ -336,90 +336,103 @@ export async function apiFetch(url, options = {}) {
 export function exportTiendaNubeCSV(productos, tnCategories = []) {
   const SEP = ";";
 
+  // 30 columnas en el orden exacto de Tienda Nube
   const HEADERS = [
     '"Identificador de URL"',
-    "Nombre",
-    "Categorías",
-    "Precio",
+    'Nombre',
+    'Categorías',
+    '"Nombre de propiedad 1"',
+    '"Valor de propiedad 1"',
+    '"Nombre de propiedad 2"',
+    '"Valor de propiedad 2"',
+    '"Nombre de propiedad 3"',
+    '"Valor de propiedad 3"',
+    'Precio',
     '"Precio promocional"',
     '"Peso (kg)"',
     '"Alto (cm)"',
     '"Ancho (cm)"',
     '"Profundidad (cm)"',
-    "Stock",
-    "SKU",
+    'Stock',
+    'SKU',
     '"Código de barras"',
     '"Mostrar en tienda"',
     '"Envío sin cargo"',
-    "Descripción",
-    "Tags",
+    'Descripción',
+    'Tags',
     '"Título para SEO"',
     '"Descripción para SEO"',
-    "Marca",
+    'Marca',
     '"Producto Físico"',
     '"MPN (Número de pieza del fabricante)"',
-    "Sexo",
+    'Sexo',
     '"Rango de edad"',
-    "Costo",
+    'Costo',
   ];
 
-  // Envuelve el campo en comillas y escapa comillas internas
-  function field(value) {
-    if (value === null || value === undefined) return "";
+  // Envuelve en comillas y escapa comillas internas
+  function f(value) {
+    if (value === null || value === undefined) return '';
     const str = String(value).trim();
-    if (!str) return "";
+    if (!str) return '';
     return '"' + str.replace(/"/g, '""') + '"';
   }
 
-  // Campo numérico sin comillas, con coma decimal
-  function num(value) {
-    if (!value && value !== 0) return "";
-    const n = parseFloat(String(value).replace(",", "."));
-    return isNaN(n) ? "" : n.toFixed(2).replace(".", ",");
+  // Número con coma decimal (formato argentino)
+  function n(value) {
+    if (!value && value !== 0) return '';
+    const num = parseFloat(String(value).replace(',', '.'));
+    return isNaN(num) ? '' : String(num).replace('.', ',');
   }
 
   const rows = productos.map(p => {
     const e = p._enriched || {};
 
     const precioRaw = p.PRECIO || p.precio || p.Precio || p.PRICE || 0;
-    const precio = parseFloat(String(precioRaw).replace(",", ".")) || 0;
-    const mostrar = precio > 0 ? "SI" : "NO";
+    const precio = parseFloat(String(precioRaw).replace(',', '.')) || 0;
+    const mostrar = precio > 0 ? 'SI' : 'NO';
 
-    const slug      = e.slug              || slugify(p.PRODUCTO || p.producto || "");
-    const nombre    = e.nombre_limpio     || p.PRODUCTO || p.producto || "";
+    const slug     = e.slug          || slugify(p.PRODUCTO || p.producto || '');
+    const nombre   = e.nombre_limpio || p.PRODUCTO || p.producto || '';
     const categoria = getCategoriaTN(p, tnCategories);
-    const tags      = Array.isArray(e.tags) ? e.tags.join(", ") : (e.tags || "");
-    const desc      = e.descripcion_html  || "";
-    const seoT      = e.seo_titulo        || nombre.substring(0, 70);
-    const seoD      = e.seo_descripcion   || "";
-    const marca     = e.marca             || "";
-    const mpn       = p["CODIGO EXTERNO"] || p.codigo_externo || "";
+    const tags     = Array.isArray(e.tags) ? e.tags.join(', ') : (e.tags || '');
+    const desc     = e.descripcion_html || '';
+    const seoT     = (e.seo_titulo || nombre).substring(0, 70);
+    const seoD     = (e.seo_descripcion || '').substring(0, 160);
+    const marca    = e.marca || '';
+    const mpn      = p['CODIGO EXTERNO'] || p.codigo_externo || '';
 
     return [
-      field(slug),
-      field(nombre),
-      field(categoria),
-      num(precio),
-      "",                  // Precio promocional
-      num(e.peso_kg),
-      num(e.alto_cm),
-      num(e.ancho_cm),
-      num(e.profundidad_cm),
-      "1",                 // Stock
-      field(p.CODIGO || p.codigo || ""),
-      "",                  // Código de barras
-      mostrar,
-      "NO",                // Envío sin cargo
-      field(desc),
-      field(tags),
-      field(seoT),
-      field(seoD),
-      field(marca),
-      "SI",                // Producto Físico
-      field(mpn),
-      "",                  // Sexo
-      "",                  // Rango de edad
-      "",                  // Costo
+      f(slug),                           // Identificador de URL
+      f(nombre),                         // Nombre
+      f(categoria),                      // Categorías
+      f(e.prop1_nombre || ''),           // Nombre de propiedad 1
+      f(e.prop1_valor  || ''),           // Valor de propiedad 1
+      f(e.prop2_nombre || ''),           // Nombre de propiedad 2
+      f(e.prop2_valor  || ''),           // Valor de propiedad 2
+      f(e.prop3_nombre || ''),           // Nombre de propiedad 3
+      f(e.prop3_valor  || ''),           // Valor de propiedad 3
+      precio > 0 ? n(precio) : '',       // Precio
+      '',                                // Precio promocional (siempre vacío)
+      n(e.peso_kg),                      // Peso (kg)
+      n(e.alto_cm),                      // Alto (cm)
+      n(e.ancho_cm),                     // Ancho (cm)
+      n(e.profundidad_cm),               // Profundidad (cm)
+      '1',                               // Stock (siempre 1)
+      f(p.CODIGO || p.codigo || ''),     // SKU
+      '',                                // Código de barras (siempre vacío)
+      mostrar,                           // Mostrar en tienda
+      'NO',                              // Envío sin cargo (siempre NO)
+      f(desc),                           // Descripción
+      f(tags),                           // Tags
+      f(seoT),                           // Título para SEO
+      f(seoD),                           // Descripción para SEO
+      f(marca),                          // Marca
+      'SI',                              // Producto Físico (siempre SI)
+      f(mpn),                            // MPN
+      '',                                // Sexo (siempre vacío)
+      '',                                // Rango de edad (siempre vacío)
+      '',                                // Costo (siempre vacío)
     ].join(SEP);
   });
 

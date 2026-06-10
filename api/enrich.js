@@ -3,66 +3,97 @@ const MODELS = [
   'llama-3.1-8b-instant',
 ]
 
-const BASE_SYSTEM_PROMPT = `Sos un experto en productos HVAC (calefaccion, refrigeracion, gas, agua sanitaria) y en e-commerce argentino. Para cada producto genera datos para una tienda online.
-
-Responde SOLO con JSON array valido, sin markdown ni backticks.
-Formato exacto por producto:
-{
-  "codigo": "...",
-  "slug": "nombre-en-minusculas-sin-acentos-con-guiones",
-  "nombre_limpio": "Nombre Capitalizado Correctamente",
-  "marca": "Marca extraida del nombre o proveedor",
-  "descripcion_html": "<p>Descripcion del producto en 2-3 oraciones.</p><hr/><h3>Especificaciones tecnicas</h3><ul><li><p>Compatible con: marcas detectadas</p></li><li><p>Tipo: tipo de repuesto</p></li></ul>",
-  "tags": ["tag1", "tag2"],
-  "seo_titulo": "Nombre Producto | Categoria | Marca (max 70 chars)",
-  "seo_descripcion": "Descripcion breve para SEO (max 160 chars)",
-  "peso_kg": 0.2,
-  "alto_cm": 5,
-  "ancho_cm": 8,
-  "profundidad_cm": 3,
-  "categoria_tiendanube": "Repuestos y Accesorios > Calefaccion > Calderas > Plaquetas",
-  "es_categoria_nueva": false,
-  "keywords_sugeridas": ""
-}
-
-Estima peso y dimensiones segun el tipo:
-- Diafragma/membrana: peso 0.1-0.3 kg, dims ~8x8x3
-- Electrodo/termocupla: peso 0.05-0.1 kg, dims ~15x2x2
-- Plaqueta/display: peso 0.1-0.2 kg, dims ~10x8x2
-- Valvula/presostato: peso 0.2-0.5 kg, dims ~8x8x6
-- Filtro deshidratador: peso 0.3-0.5 kg, dims ~15x5x5
-- Accesorio (cupla, racor, tee): peso 0.1-0.3 kg, dims ~5x5x5
-- Producto completo pequeno: peso 2-5 kg
-- Producto completo grande: peso 10-30 kg`
-
 function buildSystemPrompt(tnCats) {
-  if (!tnCats || tnCats.length === 0) {
-    return BASE_SYSTEM_PROMPT + `
+  const catList = tnCats && tnCats.length > 0
+    ? tnCats.map(c => [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(' > ')).filter(Boolean).join('\n')
+    : 'Repuestos y Accesorios > Calefaccion\nRepuestos y Accesorios > Refrigeracion\nRepuestos y Accesorios > Gas y Agua\nRepuestos y Accesorios > Agua Sanitaria\nRepuestos y Accesorios > Herramientas'
 
-Para categoria_tiendanube usá la jerarquía: Repuestos y Accesorios > [Calefaccion|Refrigeracion|Gas y Agua|Agua Sanitaria|Herramientas] > [subcategoria] > [tipo]
-Dejá es_categoria_nueva en false y keywords_sugeridas vacío.`
-  }
+  return `Sos un experto en repuestos HVAC (calefacción, refrigeración, gas, agua sanitaria) para el mercado argentino. Completá los datos de cada producto para una tienda online en Tienda Nube.
 
-  const catList = tnCats.map(c =>
-    [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(' > ')
-  ).filter(Boolean).join('\n')
-
-  return BASE_SYSTEM_PROMPT + `
-
-CATEGORÍAS DISPONIBLES:
+CATEGORÍAS DISPONIBLES (elegí EXACTAMENTE una, sin modificar el texto):
 ${catList}
 
+Para cada producto devolvé SOLO un JSON array válido sin markdown ni backticks.
+Formato exacto por producto:
+{
+  "codigo": "código del producto",
+  "slug": "nombre-en-minusculas-sin-acentos-con-guiones",
+  "nombre_limpio": "Nombre capitalizado correctamente. Expandir abreviaciones: REP.→Repuesto, UM→Unidad Magnética, ACC.→Accesorio, CALD.→Caldera, CALEF.→Calefón",
+  "marca": "Marca del producto extraída del nombre o proveedor. Solo la marca fabricante, no la marca compatible",
+  "prop1_nombre": "Marca compatible",
+  "prop1_valor": "Marcas separadas por / extraídas del nombre, o null si no hay info",
+  "prop2_nombre": "Medida o Capacidad o null",
+  "prop2_valor": "Valor con unidad (ej: 76mm, 14/16 litros, 10 gramos) o null",
+  "prop3_nombre": "Tipo o Modelo o Conexión o null",
+  "prop3_valor": "Valor específico (ej: Botonera grande, 3/4 M-H, Target) o null",
+  "descripcion_html": "<p>Descripción en 2-3 oraciones en español rioplatense. Qué es, para qué sirve, con qué equipos es compatible.</p><hr/><h3>Especificaciones técnicas</h3><ul><li><p>Compatible con: [marcas/modelos]</p></li><li><p>Tipo: [tipo de repuesto]</p></li><li><p>Material: [si se puede inferir]</p></li></ul>",
+  "tags": ["tag1", "tag2", "tag3"],
+  "seo_titulo": "Nombre Producto | Categoría | Marca (máx 70 caracteres)",
+  "seo_descripcion": "Descripción breve para SEO máx 160 caracteres",
+  "peso_kg": número estimado,
+  "alto_cm": número estimado,
+  "ancho_cm": número estimado,
+  "profundidad_cm": número estimado,
+  "categoria_tiendanube": "Copiar exactamente de la lista de categorías disponibles",
+  "es_categoria_nueva": false,
+  "keywords_sugeridas": null
+}
+
+REGLAS PARA LAS PROPIEDADES:
+
+PROPIEDAD 1 — Marca compatible:
+- prop1_nombre: siempre "Marca compatible" (nunca null si hay marcas identificables)
+- prop1_valor: marcas compatibles separadas por " / " en el nombre del producto
+- Ejemplos:
+  "DIAFRAGMA CALEFON ORBIS BOTONERA GRANDE" → prop1_valor: "Orbis"
+  "UNIDAD MAGNETICA UM11 FASTON (ORBIS, LONGVIE, DOMEC)" → prop1_valor: "Orbis / Longvie / Domec"
+  "TERMOCUPLA SIT INTERROTTA LUNA ECO SOLARIA" → prop1_valor: "Baxi / Luna / Solaria"
+  Sin marca → prop1_nombre: null, prop1_valor: null
+
+PROPIEDAD 2 — Medida o Capacidad:
+- prop2_nombre: "Medida" (para dimensiones/mm/cm) o "Capacidad" (para litros/gramos)
+- prop2_valor: valor con unidad extraído del nombre
+- Ejemplos:
+  "DIAFRAGMA CALEFON ORBIS BOTONERA GRANDE (76MM)" → "Medida", "76mm"
+  "DIAFRAGMA CALEFON ORBIS 14/16 LTS" → "Capacidad", "14/16 litros"
+  "FILTRO O CHICOTE DE 10 GRAMOS" → "Capacidad", "10 gramos"
+  "ANODO 65CM" → "Medida", "65cm"
+  Sin medida → prop2_nombre: null, prop2_valor: null
+
+PROPIEDAD 3 — Tipo, Modelo o Conexión:
+- prop3_nombre: "Tipo" o "Modelo" o "Conexión" según corresponda
+- Ejemplos:
+  "DIAFRAGMA CALEFON ORBIS BOTONERA GRANDE" → "Tipo", "Botonera grande"
+  "LLAVE DE GAS DE 3/4 M-H BRONCE FV" → "Conexión", "3/4 M-H"
+  "TERMOCUPLA 300MM PARA PILOTO TARGET" → "Modelo", "Target / Coppens"
+  Sin tipo/modelo → prop3_nombre: null, prop3_valor: null
+
+ESTIMACIONES DE PESO Y DIMENSIONES:
+- Diafragma/membrana: 0.1-0.3 kg, 8x8x3 cm
+- Electrodo/termocupla fina: 0.05-0.1 kg, 15x2x2 cm
+- Termocupla con cable: 0.1-0.2 kg, 20x3x3 cm
+- Plaqueta/display: 0.1-0.3 kg, 15x10x3 cm
+- Válvula/presostato pequeño: 0.2-0.4 kg, 8x8x6 cm
+- Válvula gas grande: 0.5-1 kg, 12x10x8 cm
+- Unidad magnética: 0.2-0.5 kg, 10x8x6 cm
+- Filtro deshidratador: 0.3-0.5 kg, 15x5x5 cm
+- Resistencia termotanque: 0.3-0.6 kg, 40x5x5 cm
+- Ánodo magnesio: 0.4-0.8 kg, 65x3x3 cm
+- Capacitor pequeño: 0.1-0.2 kg, 8x4x4 cm
+- Manómetro: 0.2-0.4 kg, 12x12x8 cm
+- Motor ventilador: 0.5-1.5 kg, 15x15x12 cm
+- Accesorio (cupla, racor, tee): 0.1-0.3 kg, 5x5x5 cm
+- Producto completo pequeño: 2-5 kg
+- Producto completo grande: 10-30 kg
+
+ABREVIACIONES HVAC ARGENTINA:
+UM→Unidad Magnética | TF→Tiro Forzado | TN→Tiro Natural | M-H→Macho-Hembra | F-F→Femenino-Femenino | BSP/NPT→rosca | MM→milímetros | FASTON→conector eléctrico | NTC/PTC→sensor temperatura
+
 REGLAS PARA categoria_tiendanube:
-1. PREFERENCIA: elegí SIEMPRE una categoría existente de la lista si encaja. En ese caso es_categoria_nueva = false y keywords_sugeridas = "".
-2. Si el producto no encaja en ninguna existente, podés sugerir una nueva subcategoría de nivel3 o nivel4 SOLO si:
-   * El nombre es genérico (aplica a múltiples productos similares)
-   * Tiene máximo 3 palabras
-   * Está en español correctamente escrito
-   * El nivel1 y nivel2 ya existen en la lista
-3. Si sugerís una nueva, usá el formato completo: "Nivel1 existente > Nivel2 existente > Nombre nuevo"
-4. NO inventes nivel1 ni nivel2 nuevos
-5. En caso de duda, usá la categoría más cercana existente
-6. Cuando es_categoria_nueva = true, completá keywords_sugeridas con 3-5 palabras clave separadas por coma que describan los productos que encajarían en esa categoría (ej: "quemador,ignicion,electrodo,llama")`
+1. PREFERENCIA: elegí SIEMPRE una categoría existente de la lista si encaja. En ese caso es_categoria_nueva = false.
+2. Si no encaja en ninguna, podés sugerir nivel3 o nivel4 nuevo SOLO si: nombre genérico, máx 3 palabras, español, nivel1/nivel2 ya existen.
+3. NO inventes nivel1 ni nivel2 nuevos.
+4. Cuando es_categoria_nueva = true, completá keywords_sugeridas con 3-5 palabras clave separadas por coma.`
 }
 
 function setCORS(res) {

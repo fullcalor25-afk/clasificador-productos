@@ -498,49 +498,69 @@ export default function ExportView({
                       background: C.surface,
                       border: `1px solid ${C.border}`,
                       borderRadius: 12,
-                      padding: 16,
+                      padding: 14,
                       display: "flex",
                       flexDirection: "column",
                       gap: 8,
                     }}
                   >
+                    {/* Header */}
                     <div>
-                      <div style={{ fontSize: 10, color: C.textDim, fontWeight: 700, textTransform: "uppercase" }}>
-                        {p.CODIGO}
-                      </div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                      <div style={{ fontSize: 10, color: C.textDim, fontWeight: 700, textTransform: "uppercase" }}>{p.CODIGO}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text, lineHeight: 1.3 }}>
                         {p._enriched.nombre_limpio}
                       </div>
                       <div style={{ fontSize: 11, color: C.textMuted }}>
-                        Marca: <strong>{p._enriched.marca || "No especificada"}</strong>
+                        Marca fab: <strong>{p._enriched.marca || "—"}</strong>
                       </div>
                     </div>
-                    
-                    <div style={{ display: "flex", gap: 6, fontSize: 11 }}>
-                      <span style={{ padding: "2px 6px", background: C.surface2, borderRadius: 4, color: C.textMuted }}>
-                        ⚖️ {p._enriched.peso_kg || 0.1} kg
-                      </span>
-                      <span style={{ padding: "2px 6px", background: C.surface2, borderRadius: 4, color: C.textMuted }}>
-                        📐 {p._enriched.alto_cm}x{p._enriched.ancho_cm} cm
-                      </span>
+
+                    {/* Propiedades inline editables */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                      {[
+                        { nKey: "prop1_nombre", vKey: "prop1_valor", placeholder: "Marca compatible" },
+                        { nKey: "prop2_nombre", vKey: "prop2_valor", placeholder: "Medida/Capacidad" },
+                        { nKey: "prop3_nombre", vKey: "prop3_valor", placeholder: "Tipo/Modelo/Conexión" },
+                      ].map(({ nKey, vKey, placeholder }) => (
+                        <div key={nKey} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <input
+                            value={p._enriched[nKey] || ""}
+                            onChange={e => {
+                              if (updateProductEnriched) updateProductEnriched(p._id, { ...p._enriched, [nKey]: e.target.value });
+                            }}
+                            placeholder={placeholder}
+                            style={{ flex: "0 0 110px", padding: "3px 6px", borderRadius: 5, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 10 }}
+                          />
+                          <span style={{ fontSize: 10, color: C.textDim }}>:</span>
+                          <input
+                            value={p._enriched[vKey] || ""}
+                            onChange={e => {
+                              if (updateProductEnriched) updateProductEnriched(p._id, { ...p._enriched, [vKey]: e.target.value });
+                            }}
+                            placeholder="valor..."
+                            style={{ flex: 1, padding: "3px 6px", borderRadius: 5, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 10 }}
+                          />
+                        </div>
+                      ))}
                     </div>
 
-                    <button
-                      onClick={() => setIndividualEditingProduct(p)}
-                      style={{
-                        marginTop: 4,
-                        padding: "6px 12px",
-                        borderRadius: 6,
-                        border: `1px solid ${C.border}`,
-                        background: "transparent",
-                        color: C.accent,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                      }}
-                    >
-                      ✏️ Editar Campos Enriquecidos
-                    </button>
+                    {/* Dims + edit modal */}
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+                      <div style={{ display: "flex", gap: 4, fontSize: 10 }}>
+                        <span style={{ padding: "1px 5px", background: C.surface2, borderRadius: 4, color: C.textMuted }}>
+                          {p._enriched.peso_kg || "?"}kg
+                        </span>
+                        <span style={{ padding: "1px 5px", background: C.surface2, borderRadius: 4, color: C.textMuted }}>
+                          {p._enriched.alto_cm}x{p._enriched.ancho_cm}cm
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setIndividualEditingProduct(p)}
+                        style={{ padding: "3px 8px", borderRadius: 5, border: `1px solid ${C.border}`, background: "transparent", color: C.accent, fontSize: 10, cursor: "pointer" }}
+                      >
+                        ✏️ Más campos
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -598,10 +618,69 @@ export default function ExportView({
                   boxShadow: "0 4px 6px -1px rgba(16,185,129,0.2)",
                 }}
               >
-                📥 Descargar CSV Tienda Nube
+                📥 Descargar CSV Tienda Nube (30 columnas)
               </button>
             </div>
-            
+
+            {/* Preview de primeras 3 filas */}
+            {selectedProducts.slice(0, 3).some(p => p._enriched) && (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", marginBottom: 8 }}>
+                  Vista previa (primeras {Math.min(3, selectedProducts.length)} filas)
+                </div>
+                <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${C.border}` }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: C.surface2 }}>
+                        {["SKU", "Nombre", "Categoría", "Precio", "Propiedades", "Mostrar"].map(h => (
+                          <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, color: C.textMuted, fontSize: 10, textTransform: "uppercase", borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedProducts.slice(0, 3).map((p, i) => {
+                        const e = p._enriched || {};
+                        const precio = parseFloat(String(p.PRECIO || p.precio || 0).replace(",", ".")) || 0;
+                        const cat = buildCategoriaTN(p, tnCategories);
+                        const props = [
+                          e.prop1_nombre && e.prop1_valor && `${e.prop1_nombre}: ${e.prop1_valor}`,
+                          e.prop2_nombre && e.prop2_valor && `${e.prop2_nombre}: ${e.prop2_valor}`,
+                          e.prop3_nombre && e.prop3_valor && `${e.prop3_nombre}: ${e.prop3_valor}`,
+                        ].filter(Boolean);
+                        return (
+                          <tr key={p._id || i} style={{ borderBottom: `1px solid ${C.border}` }}>
+                            <td style={{ padding: "6px 10px", fontFamily: "monospace", color: C.textDim }}>{p.CODIGO || "—"}</td>
+                            <td style={{ padding: "6px 10px", fontWeight: 600, color: C.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {e.nombre_limpio || p.PRODUCTO || "—"}
+                            </td>
+                            <td style={{ padding: "6px 10px", color: C.textMuted, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {cat.split(" > ").pop() || "—"}
+                            </td>
+                            <td style={{ padding: "6px 10px", color: precio > 0 ? C.success : C.danger, fontWeight: 600 }}>
+                              {precio > 0 ? `$${precio.toLocaleString("es-AR")}` : "Sin precio"}
+                            </td>
+                            <td style={{ padding: "6px 10px", maxWidth: 220 }}>
+                              {props.length > 0
+                                ? <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                    {props.map((pp, j) => (
+                                      <span key={j} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: `${C.accent}12`, color: C.accent, whiteSpace: "nowrap" }}>{pp}</span>
+                                    ))}
+                                  </div>
+                                : <span style={{ color: C.textDim, fontStyle: "italic", fontSize: 10 }}>Sin enriquecer</span>
+                              }
+                            </td>
+                            <td style={{ padding: "6px 10px", fontWeight: 700, color: precio > 0 ? C.success : C.danger, fontSize: 10 }}>
+                              {precio > 0 ? "SI" : "NO"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             <div style={{ marginTop: 16, padding: 12, borderRadius: 8, background: `${C.accent}12`, border: `1px solid ${C.accent}30`, fontSize: 12, color: C.accent, fontWeight: 500 }}>
               💡 <strong>Instrucciones:</strong> Entrá a tu administrador de <strong>Tienda Nube → Productos → Importar desde CSV</strong> y subí el archivo descargado. ¡Eso es todo!
             </div>
@@ -652,7 +731,7 @@ export default function ExportView({
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 4 }}>Marca</label>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 4 }}>Marca (fabricante)</label>
                       <input
                         id="edit-ma"
                         defaultValue={e.marca || ""}
@@ -667,6 +746,24 @@ export default function ExportView({
                         style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13 }}
                       />
                     </div>
+                  </div>
+
+                  {/* Propiedades variables */}
+                  <div style={{ background: `${C.accent}08`, borderRadius: 8, padding: 12, border: `1px solid ${C.accent}20` }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, marginBottom: 8 }}>Propiedades Tienda Nube</div>
+                    {[
+                      { nId: "edit-p1n", vId: "edit-p1v", nDef: e.prop1_nombre || "", vDef: e.prop1_valor || "", label: "Propiedad 1 (Marca compatible)", ph: "ej: Orbis / Longvie" },
+                      { nId: "edit-p2n", vId: "edit-p2v", nDef: e.prop2_nombre || "", vDef: e.prop2_valor || "", label: "Propiedad 2 (Medida / Capacidad)", ph: "ej: 76mm" },
+                      { nId: "edit-p3n", vId: "edit-p3v", nDef: e.prop3_nombre || "", vDef: e.prop3_valor || "", label: "Propiedad 3 (Tipo / Modelo)", ph: "ej: Botonera grande" },
+                    ].map(({ nId, vId, nDef, vDef, label, ph }) => (
+                      <div key={nId} style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 4 }}>{label}</label>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 6 }}>
+                          <input id={nId} defaultValue={nDef} placeholder="nombre..." style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12 }} />
+                          <input id={vId} defaultValue={vDef} placeholder={ph} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12 }} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
@@ -763,6 +860,12 @@ export default function ExportView({
                         nombre_limpio: nl,
                         marca: ma,
                         categoria_tiendanube: ctn,
+                        prop1_nombre: document.getElementById("edit-p1n").value || null,
+                        prop1_valor:  document.getElementById("edit-p1v").value || null,
+                        prop2_nombre: document.getElementById("edit-p2n").value || null,
+                        prop2_valor:  document.getElementById("edit-p2v").value || null,
+                        prop3_nombre: document.getElementById("edit-p3n").value || null,
+                        prop3_valor:  document.getElementById("edit-p3v").value || null,
                         peso_kg: pe,
                         alto_cm: al,
                         ancho_cm: an,

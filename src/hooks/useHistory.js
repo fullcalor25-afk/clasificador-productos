@@ -54,6 +54,12 @@ export default function useHistory() {
               ancho_cm: p.ancho_cm || null,
               profundidad_cm: p.profundidad_cm || null,
               categoria_tiendanube: p.categoria_tiendanube || null,
+              prop1_nombre: p.prop1_nombre || null,
+              prop1_valor:  p.prop1_valor  || null,
+              prop2_nombre: p.prop2_nombre || null,
+              prop2_valor:  p.prop2_valor  || null,
+              prop3_nombre: p.prop3_nombre || null,
+              prop3_valor:  p.prop3_valor  || null,
             },
           };
         });
@@ -97,6 +103,12 @@ export default function useHistory() {
           profundidad_cm: e ? (e.profundidad_cm || null) : null,
           categoria_tiendanube: getCategoriaTN(p, tnCategories) || null,
           tn_manual: p._tn_manual || false,
+          prop1_nombre: e ? (e.prop1_nombre || null) : null,
+          prop1_valor:  e ? (e.prop1_valor  || null) : null,
+          prop2_nombre: e ? (e.prop2_nombre || null) : null,
+          prop2_valor:  e ? (e.prop2_valor  || null) : null,
+          prop3_nombre: e ? (e.prop3_nombre || null) : null,
+          prop3_valor:  e ? (e.prop3_valor  || null) : null,
         };
       });
       
