@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { C, CLS, CLS_COLORS } from "../constants";
 import { buildCategoriaTN } from "../utils";
 import ClassificationBadge from "../components/ClassificationBadge";
@@ -16,6 +16,8 @@ export default function TableView({
   onManualClassify,
   onTNCategory = null,
   onBulkClassify,
+  onDeleteSelected = null,
+  onSelectionChange = null,
   rules = [],
   toast = null,
 }) {
@@ -46,9 +48,10 @@ export default function TableView({
   });
   const [showColPicker, setShowColPicker] = useState(false);
 
-  // Bulk selection state
-  const [selectedIds, setSelectedIds] = useState([]);
+  // Bulk selection state (Set for O(1) lookups across all pages)
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkClass, setBulkClass] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Sidebar Drawer state
   const [drawerProduct, setDrawerProduct] = useState(null);
@@ -132,26 +135,62 @@ export default function TableView({
 
   const totalPages = Math.ceil(filteredProducts.length / pageSize);
 
+  // Notify parent of selection count changes
+  useEffect(() => {
+    if (onSelectionChange) onSelectionChange(selectedIds.size);
+  }, [selectedIds.size]);
+
+  // Toggle current page: add if checking, remove if unchecking (multi-page safe)
   const toggleSelectAll = (checked) => {
-    if (checked) {
-      setSelectedIds(pagedProducts.map(p => p._id));
-    } else {
-      setSelectedIds([]);
-    }
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        pagedProducts.forEach(p => next.add(p._id));
+      } else {
+        pagedProducts.forEach(p => next.delete(p._id));
+      }
+      return next;
+    });
   };
 
   const toggleSelectOne = (id) => {
-    setSelectedIds(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // Select all items in the filtered list (all pages)
+  const selectAllFiltered = () => {
+    setSelectedIds(new Set(filteredProducts.map(p => p._id)));
+  };
+
+  // Quick-select by classification (additive)
+  const selectByClass = (cls) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      classifiedProducts
+        .filter(p => (p._manualClass || p._class.classification) === cls)
+        .forEach(p => next.add(p._id));
+      return next;
+    });
   };
 
   const handleBulkClassifySubmit = () => {
-    if (!bulkClass || selectedIds.length === 0) return;
-    onBulkClassify(selectedIds, bulkClass);
+    if (!bulkClass || selectedIds.size === 0) return;
+    onBulkClassify([...selectedIds], bulkClass);
     setBulkClass("");
-    setSelectedIds([]);
+    setSelectedIds(new Set());
+    setConfirmingDelete(false);
     toast?.success("Clasificación aplicada en masa.");
+  };
+
+  const handleDeleteSubmit = () => {
+    if (!onDeleteSelected) return;
+    onDeleteSelected(selectedIds);
+    setSelectedIds(new Set());
+    setConfirmingDelete(false);
   };
 
   const handleSort = (field) => {
@@ -173,7 +212,8 @@ export default function TableView({
   const handleFilterChange = (filterVal) => {
     setFilter(filterVal);
     setPage(0);
-    setSelectedIds([]);
+    setSelectedIds(new Set());
+    setConfirmingDelete(false);
   };
 
   // ── TN cascade helpers ──────────────────────────────────────────────────
@@ -336,16 +376,46 @@ export default function TableView({
 
       </div>
 
-      {/* Bulk Actions Panel (Only visible when items are selected) */}
-      {selectedIds.length > 0 && (
-        <div className="fade-in" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, background: C.accentBg, border: `1px solid ${C.accent}30`, borderRadius: 12, padding: "10px 16px" }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: C.accent }}>
-            {selectedIds.length} productos seleccionados
+      {/* Quick-select by classification */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: C.textDim, fontWeight: 600 }}>Seleccionar:</span>
+        {Object.entries(CLS).map(([k, v]) => (
+          <button
+            key={k}
+            onClick={() => selectByClass(k)}
+            style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, cursor: "pointer" }}
+            onMouseEnter={e => { e.currentTarget.style.background = C.surface2; e.currentTarget.style.color = C.text; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textMuted; }}
+          >
+            {v.icon} {v.label}
+          </button>
+        ))}
+        <button
+          onClick={selectAllFiltered}
+          style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, border: `1px solid ${C.accent}40`, background: C.accentBg, color: C.accent, cursor: "pointer", marginLeft: 4 }}
+        >
+          ☑ Todos los filtrados ({filteredProducts.length})
+        </button>
+        {selectedIds.size > 0 && (
+          <button
+            onClick={() => { setSelectedIds(new Set()); setConfirmingDelete(false); }}
+            style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, border: "none", background: "transparent", color: C.textDim, cursor: "pointer" }}
+          >
+            ✕ Limpiar selección
+          </button>
+        )}
+      </div>
+
+      {/* Bulk Actions Panel (visible when items are selected) */}
+      {selectedIds.size > 0 && (
+        <div className="fade-in" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, background: `${C.accent}10`, border: `1px solid ${C.accent}40`, borderRadius: 12, padding: "10px 16px", position: "sticky", top: 0, zIndex: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>
+            ☑ {selectedIds.size} producto{selectedIds.size !== 1 ? "s" : ""} seleccionado{selectedIds.size !== 1 ? "s" : ""}
           </div>
-          
-          <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {/* Bulk Classify */}
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
               <select
                 value={bulkClass}
                 onChange={e => setBulkClass(e.target.value)}
@@ -363,12 +433,45 @@ export default function TableView({
               </button>
             </div>
 
-            
+            {/* Delete selected */}
+            {onDeleteSelected && !confirmingDelete && (
+              <button
+                onClick={() => {
+                  if (selectedIds.size > 10) { setConfirmingDelete(true); }
+                  else { handleDeleteSubmit(); }
+                }}
+                style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${C.danger}40`, background: "transparent", color: C.danger, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+              >
+                🗑 Eliminar {selectedIds.size}
+              </button>
+            )}
+
+            {/* Confirmation for large deletes */}
+            {confirmingDelete && (
+              <div className="fade-in" style={{ display: "flex", gap: 6, alignItems: "center", padding: "4px 10px", borderRadius: 8, background: `${C.danger}12`, border: `1px solid ${C.danger}30` }}>
+                <span style={{ fontSize: 11, color: C.danger, fontWeight: 600 }}>
+                  ¿Eliminar {selectedIds.size} productos? No se puede deshacer.
+                </span>
+                <button
+                  onClick={handleDeleteSubmit}
+                  style={{ padding: "3px 10px", borderRadius: 5, border: "none", background: C.danger, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                >
+                  Confirmar
+                </button>
+                <button
+                  onClick={() => setConfirmingDelete(false)}
+                  style={{ padding: "3px 8px", borderRadius: 5, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, fontSize: 11, cursor: "pointer" }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
+
             <button
-              onClick={() => setSelectedIds([])}
-              style={{ background: "transparent", border: "none", color: C.textMuted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+              onClick={() => { setSelectedIds(new Set()); setConfirmingDelete(false); }}
+              style={{ background: "transparent", border: "none", color: C.textMuted, fontSize: 12, cursor: "pointer" }}
             >
-              Deseleccionar
+              Deseleccionar todo
             </button>
           </div>
         </div>
@@ -383,7 +486,8 @@ export default function TableView({
                 <th style={{ padding: "12px 14px", width: 40 }}>
                   <input
                     type="checkbox"
-                    checked={pagedProducts.length > 0 && selectedIds.length === pagedProducts.length}
+                    checked={pagedProducts.length > 0 && pagedProducts.every(p => selectedIds.has(p._id))}
+                    ref={el => { if (el) el.indeterminate = pagedProducts.length > 0 && pagedProducts.some(p => selectedIds.has(p._id)) && !pagedProducts.every(p => selectedIds.has(p._id)); }}
                     onChange={e => toggleSelectAll(e.target.checked)}
                   />
                 </th>
@@ -417,7 +521,7 @@ export default function TableView({
                   const isManual = p._source === "APRENDIDO" || p._manualClass;
                   const isLowConf = !isManual && p._class.confidence < 60;
                   const hasTN = !!p._enriched;
-                  const isSelected = selectedIds.includes(p._id);
+                  const isSelected = selectedIds.has(p._id);
 
                   return (
                     <tr
@@ -435,7 +539,7 @@ export default function TableView({
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => toggleSelectOne(p._id)}
+                          onChange={e => toggleSelectOne(p._id)}
                         />
                       </td>
 

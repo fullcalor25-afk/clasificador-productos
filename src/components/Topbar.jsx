@@ -9,7 +9,8 @@ export default function Topbar({
   onExport,
   onReset,
   aiState,
-  historyDetailName
+  historyDetailName,
+  selectedCount = 0,
 }) {
   const [exportOpen, setExportOpen] = React.useState(false);
   const dropdownRef = React.useRef(null);
@@ -92,6 +93,16 @@ export default function Topbar({
 
       {/* Contextual Actions */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {/* Selection badge (visible when products are selected in table) */}
+        {view === "table" && selectedCount > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+            background: `${C.danger}15`, border: `1px solid ${C.danger}30`, color: C.danger,
+          }}>
+            ☑ {selectedCount} seleccionado{selectedCount !== 1 ? "s" : ""}
+          </div>
+        )}
         {/* Dynamic actions for table/dashboard */}
         {hasActiveSession && ["dashboard", "table", "exportTN"].includes(view) && (
           <>

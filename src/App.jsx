@@ -54,6 +54,9 @@ export default function ProductClassifier() {
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(0);
 
+  // Table selection count (lifted for Topbar badge)
+  const [tableSelectedCount, setTableSelectedCount] = useState(0);
+
   // ─── Custom database / engine hooks ───────────────────────────────────────
   const {
     corrections,
@@ -401,6 +404,17 @@ export default function ProductClassifier() {
     saveSession(updated);
   };
 
+  // ─── Delete selected from active session ────────────────────────────────
+  const handleDeleteSelected = (ids) => {
+    const idsSet = ids instanceof Set ? ids : new Set(ids);
+    const updated = classified.filter(p => !idsSet.has(p._id));
+    setClassified(updated);
+    recalculateStats(updated);
+    saveSession(updated);
+    setTableSelectedCount(0);
+    toast.success(`${idsSet.size} producto${idsSet.size !== 1 ? "s" : ""} eliminado${idsSet.size !== 1 ? "s" : ""} del análisis.`);
+  };
+
   const handleUpdateProductEnriched = (id, enrichedFields) => {
     const updated = classified.map(p =>
       p._id === id ? { ...p, _enriched: enrichedFields } : p
@@ -510,6 +524,11 @@ export default function ProductClassifier() {
           onExport={(filterType) => exportCSV(filterType === "ALL" ? classified : classified.filter(p => (p._manualClass || p._class.classification) === filterType), CLS)}
           onReset={handleResetSession}
           historyDetailName={historyDetail?.nombre}
+          selectedCount={tableSelectedCount}
+          onDeleteSelected={() => {
+            // This triggers the delete in TableView via tableSelectedCount → handled there
+            // Topbar just shows the badge; deletion is in TableView
+          }}
         />
 
         {/* Content canvas */}
@@ -588,6 +607,8 @@ export default function ProductClassifier() {
               onManualClassify={handleManualClassify}
               onTNCategory={handleTNCategory}
               onBulkClassify={handleBulkClassify}
+              onDeleteSelected={handleDeleteSelected}
+              onSelectionChange={setTableSelectedCount}
               rules={rules}
               toast={toast}
             />
