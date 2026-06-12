@@ -1,300 +1,287 @@
-# AGENTS.md — Clasificador HVAC Pro v2
+# AGENTS.md — Clasificador HVAC Pro
 
-## Descripción general
-Aplicación web para clasificar productos industriales (repuestos, accesorios, productos completos, servicios) usando reglas dinámicas de Supabase, IA (Groq/Llama) y correcciones aprendidas persistidas. Usada por empresa HVAC en Patagonia para pre-procesar ~2700 productos antes de importar a Tienda Nube.
+## Descripción del proyecto
+
+Herramienta de gestión de catálogo HVAC para Full Calor (El Calafate, Argentina).
+Clasifica productos industriales, los enriquece con datos de e-commerce y
+los exporta en formato CSV para importar directamente a Tienda Nube.
+
+**Usuario:** Maximiliano Chavez — empresa de calefacción y HVAC.
+**Tienda:** Full Calor en Tienda Nube.
+**Objetivo:** Publicar sección de repuestos HVAC clasificados, categorizados
+y con ficha completa lista para importar.
 
 ---
 
-## Stack
+## Stack técnico
+
 | Capa | Tecnología |
 |------|-----------|
-| Frontend | React 18 + Vite (sin CSS frameworks) |
-| Estilos | CSS custom properties en `src/index.css` + objeto `C` en `constants.js` |
-| Tema | Light por defecto; dark via `@media (prefers-color-scheme: dark)` |
-| Backend | Netlify Functions (Node.js) |
-| Base de datos | Supabase (PostgreSQL via REST API — sin supabase-js) |
-| IA | Groq API (`llama-3.3-70b-versatile`, fallback `llama-3.1-8b-instant`) |
-| Fuente | Outfit (Google Fonts) |
+| Frontend | React 18 + Vite |
+| Funciones serverless | Vercel Functions (Node.js ESM) |
+| Base de datos | Supabase (PostgreSQL via REST API) |
+| IA clasificación | Groq API (llama-3.3-70b-versatile / llama-3.1-8b-instant) |
+| IA enriquecimiento | Groq API (mismo modelo) |
+| Deploy | Vercel (auto-deploy desde GitHub) |
+| Repo | GitHub (fullcalor25-afk/clasificador-productos) |
 
 ---
 
-## Arquitectura del frontend
+## Variables de entorno (Vercel)
 
 ```
-src/
-├── index.jsx          — Entry point
-├── index.css          — CSS variables + reset + animaciones
-├── constants.js       — Objeto C (tema), CLS_COLORS, DEFAULT_RULES, PAGE_SIZE
-├── utils.js           — Helpers puros (sin estado React)
-├── App.jsx            — Componente raíz: estado global + orquestación
-├── hooks/
-│   ├── useClassification.js  — classifyProduct, processProductsChunked, runAI, loadRules
-│   ├── useCorrections.js     — CRUD correcciones
-│   └── useHistory.js         — Guardar/cargar historial
-├── components/
-│   ├── Sidebar.jsx    — Barra lateral fija 220px
-│   └── Topbar.jsx     — Barra superior sticky 48px con breadcrumbs y acciones
-└── views/
-    ├── HomeView.jsx
-    ├── UploadView.jsx
-    ├── DashboardView.jsx
-    ├── TableView.jsx
-    ├── ExportView.jsx
-    ├── HistoryView.jsx
-    ├── HistoryDetailView.jsx
-    ├── LearningView.jsx        (correcciones aprendidas)
-    ├── CategoriesView.jsx
-    ├── ClassificationView.jsx  (reglas dinámicas)
-    └── SettingsView.jsx
+GROQ_API_KEY        API key de Groq
+SUPABASE_URL        URL del proyecto Supabase
+SUPABASE_KEY        anon public key de Supabase
 ```
 
-### Layout
-- **Sidebar** (220px fija, `position: fixed`): logo, secciones PRINCIPAL / ANÁLISIS ACTIVO / DATOS / CONFIGURACIÓN. Sección ANÁLISIS ACTIVO visible solo cuando hay sesión activa.
-- **Topbar** (48px sticky, `position: sticky top: 0`): breadcrumb izquierda + acciones contextuales derecha.
-- **Main** (`marginLeft: 220px`, `padding: 28px 32px`): área scrolleable con la vista activa.
-
-### Sistema de temas (CSS variables)
-Definido en `src/index.css`. El objeto `C` en `constants.js` referencia las variables:
-
-| Variable | Uso |
-|----------|-----|
-| `--bg` | Fondo de página |
-| `--surface` | Tarjetas / sidebar / topbar |
-| `--surface2` | Superficies secundarias |
-| `--border` | Bordes finos |
-| `--border-md` | Bordes medios |
-| `--text` | Texto principal |
-| `--text-muted` | Texto secundario |
-| `--text-dim` | Texto terciario / placeholders |
-| `--accent` / `--accent-bg` | Azul info / fondo tenue |
-| `--success` / `--success-bg` | Verde éxito |
-| `--danger` / `--danger-bg` | Rojo peligro |
-| `--warning` / `--warning-bg` | Amarillo advertencia |
-
-### Persistencia de sesión
-- `localStorage` key `hvac_session`: JSON con `{ classified, savedAt }`. Expira a 7 días.
-- `localStorage` key `hvac_last_view`: última vista activa.
-- `localStorage` key `clasificador_groq_key`: API key de Groq ingresada en Ajustes.
-- `localStorage` key `tn_categories_cache`: cache de `tiendanube_categories` (única fuente de verdad).
-- `localStorage` key `tn_corrections_cache`: mapa `{ [codigo.toLowerCase()]: categoria_tiendanube }`.
-- `localStorage` keys `tn_default_stock`, `tn_show_no_price`, `tn_sku_prefix`: configuración de exportación TN.
-- **Eliminado**: `categories_cache` (ya no se usa, se limpia en el mount del App).
+IMPORTANTE: Las funciones serverless usan SUPABASE_URL y SUPABASE_KEY
+(sin prefijo VITE_). El prefijo VITE_ solo aplica al frontend de Vite.
 
 ---
 
-## Archivos de utilidades
+## Estructura de archivos
 
-### `src/constants.js`
-- `C` — objeto de tema (mapeado a CSS variables)
-- `CLS_COLORS` — colores por clasificación (`REPUESTO`, `ACCESORIO`, etc.)
-- `DEFAULT_RULES` — ~175 reglas de clasificación de respaldo (se cargan si Supabase no responde)
-- `PAGE_SIZE = 50`
-
-### `src/utils.js`
-- `classifyProduct(product, rules)` — scoring con reglas dinámicas; no modificar lógica core
-- `processProductsChunked` — re-exportada desde hook (backwards compat)
-- `exportCSV(products)` — CSV completo; CATEGORIA = `_tn_nivel2`, SUBCATEGORIA = `_tn_nivel3`
-- `exportHistoryCSV(products, includeTN)` — CSV de historial; con `includeTN=true` incluye 12 columnas TN
-- `exportHistoryTiendaNubeCSV(histProducts)` — adapta campos lowercase → exportTiendaNubeCSV
-- `exportTiendaNubeCSV(products)` — CSV Tienda Nube (24 cols, `;`, UTF-8 BOM); usa `getCategoriaTN()`
-- `getCategoriaTN(product, tnCategories)` — prioridad: `_tn_manual` > `_enriched` > keyword matching
-- `getProductPrice(p)` — busca precio en variantes PRECIO/precio/Precio/PRICE/price
-- `fetchWithTimeout(url, options, timeout=30000)` — AbortController con timeout 30s
-- `apiFetch(url, options)` — wrapper sobre fetchWithTimeout con Content-Type JSON
-- `slugify(text)`, `buildCategoriaTN(product)`, `fmtDate(iso)`, `parseTabular(text)`, `wait(ms)`
-
----
-
-## Hooks
-
-### `src/hooks/useClassification.js`
-```js
-// processProductsChunked(products, corrections, rules, chunkSize=200, progressCb)
-//   → no bloquea el hilo principal; llama progressCb(procesados, total) cada chunk
-// runAI(products, groqApiKeyOverride, onResultsReady)
-//   → llama /api/classify en batches; classify.js carga tiendanube_categories de Supabase
-//   → resultados incluyen categoria_tiendanube; App.jsx aplica _tn_nivel1/2/3/4 al producto
-//   → 401 y 5 errores consecutivos abortan; llama onResultsReady(batchResults)
-// loadRules()
-//   → GET /api/rules; fallback a DEFAULT_RULES si 404
 ```
-
-### `src/hooks/useCategories.js` ⚠️ DEPRECATED
-No usar en código nuevo. Las categorías internas (tabla `categories`/`subcategories` de Supabase) ya no se cargan en la app. La única fuente de verdad para jerarquía de categorías es `tiendanube_categories` via `useTnCategories`.
-
-### `src/hooks/useTnCategories.js`
-```js
-// Fuente de verdad única para categorías de la app.
-// Cache localStorage key: 'tn_categories_cache'
-// loadTnCategories(), saveTnCategory(formData), deleteTnCategory(id)
+clasificador-productos/
+├── index.html
+├── vite.config.js
+├── vercel.json
+├── package.json
+├── AGENTS.md
+├── src/
+│   ├── main.jsx
+│   └── App.jsx            ← Componente principal con toda la lógica
+├── api/                   ← Vercel Functions (ESM)
+│   ├── classify.js        ← Clasificación IA con Groq
+│   ├── corrections.js     ← CRUD correcciones aprendidas
+│   ├── history.js         ← CRUD historial de análisis
+│   ├── categories.js      ← CRUD categorías internas (deprecated, no usar)
+│   ├── enrich.js          ← Enriquecimiento TN con Groq
+│   ├── tn-categories.js   ← CRUD categorías Tienda Nube
+│   ├── tn-corrections.js  ← CRUD correcciones de categoría TN
+│   └── rules.js           ← Reglas dinámicas de clasificación
+└── public/
 ```
-
-### `src/hooks/useCorrections.js`
-```js
-// importBulkCorrections(csvRows)   → POST { bulk: [...] }
-// clearAllCorrections()            → DELETE ?all=true
-// deleteCorrection(id, codigo)     → DELETE ?id=xxx  o  ?codigo=xxx
-```
-
-### `src/hooks/useHistory.js`
-```js
-// saveAnalysis(nombre, classifiedProducts)
-//   → POST analyses + analysis_products (lotes 100); persiste 12 campos TN planos
-// loadHistoryDetail(id)
-//   → GET ?id=; reconstruye _enriched desde columnas planas; parsea tags JSON
-// updateHistoryProduct(prodId, analysisId, patchData)
-//   → PATCH history.js con { productId, clasificacion, fuente, confianza }
-```
-
----
-
-## Netlify Functions
-
-### `classify.js`
-- POST: clasifica hasta 15 productos con Groq; lee correcciones de `clasificaciones` (Supabase); **carga `tiendanube_categories` de Supabase** para enriquecer el prompt; devuelve `categoria_tiendanube` (path completo) en cada resultado.
-
-### `enrich.js`
-- POST: enriquece hasta 15 productos para Tienda Nube; genera slug, nombre_limpio, marca, descripcion_html, tags, seo_titulo, seo_descripcion, peso_kg, alto_cm, ancho_cm, profundidad_cm, categoria_tiendanube.
-
-### `categories.js` ⚠️ DEPRECATED
-- Archivo mantenido en disco pero ya no se usa desde el frontend. No eliminar (puede tener datos históricos).
-- La jerarquía de categorías ahora vive en `tiendanube_categories` via `api/tn-categories.js`.
-
-### `tn-categories.js`
-- GET/POST/PUT/DELETE sobre `tiendanube_categories` (nivel1–nivel4, keywords, activa, orden)
-
-### `tn-corrections.js`
-- GET/POST/DELETE sobre `tn_corrections` (codigo UNIQUE, categoria_tiendanube, producto)
-- Se aplican al cargar productos: si `codigo` match → asigna `_tn_nivel1/2/3/4` + `_tn_manual=true`
-
-### `corrections.js`
-- **GET** `?page=N&limit=N&search=term` — lista paginada con búsqueda por código/producto
-- **POST** `{ codigo, producto, rubro, sub_rubro, clasificacion_corregida }` — upsert individual
-- **POST** `{ bulk: [{...}] }` — importación masiva (chunks 100, upsert por código)
-- **DELETE** `?all=true` — borra todas las correcciones
-- **DELETE** `?id=N` — borra por id
-- **DELETE** `?codigo=XXX` — borra por código
-
-### `history.js`
-- **GET** (lista) `?from=YYYY-MM&to=YYYY-MM` — filtra por mes; anota `has_enriched` en cada análisis
-- **GET** `?id=N` — detalle con array `products`
-- **POST** — crea análisis + productos (lotes 100)
-- **PUT** `?id=N` — renombra
-- **DELETE** `?id=N` — elimina
-- **PATCH** `?id=N` + `{ productId, clasificacion, fuente, confianza }` — actualiza producto individual
-
-### `rules.js`
-- **GET** — lista todas las reglas activas/inactivas ordenadas por id
-- **POST** `{ tipo, nivel, valor, peso, activa }` — crea regla individual
-- **POST** `{ reset: true, defaults: [...] }` — borra todo y re-inserta las reglas por defecto
-- **DELETE** `?id=N` — elimina regla
-
----
-
-## Variables de entorno (Netlify)
-| Variable | Uso |
-|----------|-----|
-| `GROQ_API_KEY` | API key de Groq |
-| `VITE_SUPABASE_URL` | URL del proyecto Supabase |
-| `VITE_SUPABASE_ANON_KEY` | Anon key de Supabase |
 
 ---
 
 ## Tablas Supabase
 
-### `corrections`
-`id`, `codigo` (UNIQUE), `producto`, `rubro`, `sub_rubro`, `clasificacion_corregida`, `updated_at`
+### corrections — Correcciones aprendidas de clasificación Y enriquecimiento
+```sql
+id, codigo (UNIQUE), producto, rubro, sub_rubro,
+clasificacion_corregida,
+categoria_tiendanube, nombre_limpio, marca,
+prop1_nombre, prop1_valor,
+prop2_nombre, prop2_valor,
+prop3_nombre, prop3_valor,
+peso_kg, alto_cm, ancho_cm, profundidad_cm,
+updated_at
+```
+Fuente de verdad: cada corrección manual del usuario se guarda aquí.
+Al cargar productos, se aplican automáticamente por CODIGO.
+Prioridad máxima sobre IA y reglas.
 
-### `analyses`
-`id`, `nombre`, `total`, `repuestos`, `accesorios`, `completos`, `servicios`, `otros`, `aprendidos`, `created_at`
+### tn_corrections — Correcciones de categoría Tienda Nube
+```sql
+id, codigo (UNIQUE), producto, categoria_tiendanube, updated_at
+```
 
-### `analysis_products`
-`id`, `analysis_id` (FK → analyses CASCADE), `codigo`, `producto`, `rubro`, `sub_rubro`, `clasificacion`, `fuente`, `confianza`, `category_id`, `subcategory_id`, `tipo`
-— Columnas TN (nullable): `slug`, `nombre_limpio`, `marca`, `descripcion_html`, `tags` (JSON string), `seo_titulo`, `seo_descripcion`, `peso_kg`, `alto_cm`, `ancho_cm`, `profundidad_cm`, `categoria_tiendanube`
-— SQL de migración: `supabase_todo.sql`
+### tiendanube_categories — Categorías de la tienda (4 niveles)
+```sql
+id, nivel1, nivel2, nivel3, nivel4, keywords, activa, orden
+```
+Estructura actual:
+- nivel1: siempre "Repuestos y Accesorios"
+- nivel2: Calefacción | Agua Sanitaria | Refrigeración |
+          Componentes Eléctricos | Materiales Eléctricos |
+          Materiales de Instalación
+- nivel3: subcategorías por nivel2 (Calderas, Calefones, etc.)
+- nivel4: tipo específico (Plaquetas y Electrónica, Diafragmas, etc.)
 
-### `categories` + `subcategories` ⚠️ DEPRECATED
-Tablas mantenidas en Supabase pero ya no usadas por el frontend. No eliminar.
+Las keywords de cada categoría son usadas por la IA para asignar
+productos automáticamente. Son la fuente de verdad para la IA.
 
-### `tiendanube_categories`
-`id`, `nivel1`, `nivel2`, `nivel3`, `nivel4` (TEXT, max 4 niveles), `keywords`, `activa`, `orden`, `created_at`
-— **Única fuente de verdad para jerarquía de categorías**
-— Usada en: `TnCategoriesView`, `useTnCategories`, `classify.js` (prompt), `enrich.js` (prompt), `ExportView`
+### analyses — Historial de análisis guardados
+```sql
+id, nombre, total, repuestos, accesorios, completos,
+servicios, otros, aprendidos, created_at
+```
 
-### `tn_corrections`
-`id`, `codigo` (UNIQUE), `producto`, `categoria_tiendanube` (path completo), `created_at`, `updated_at`
-— Correcciones manuales de categoría TN; se aplican al cargar productos via `handleProductsLoaded`
-— SQL: `supabase_tn_corrections.sql`
-
-### `classification_rules`
-`id`, `tipo` (REPUESTO|ACCESORIO|PRODUCTO_COMPLETO|SERVICIO), `nivel` (keyword|rubro_pattern|subrubro_pattern), `valor`, `peso`, `activa`, `created_at`
-— SQL de creación: `supabase_rules.sql`
-
-### `clasificaciones` (legacy)
-`codigo`, `producto`, `rubro`, `sub_rubro`, `clasificacion_ia`, `clasificacion_manual`, `updated_at`
-— Usada solo por `classify.js` para contexto del prompt de IA.
+### analysis_products — Productos de cada análisis
+```sql
+id, analysis_id (FK CASCADE), codigo, producto, rubro, sub_rubro,
+clasificacion, fuente, confianza,
+category_id, subcategory_id, tipo,
+slug, nombre_limpio, marca,
+descripcion_html, tags, seo_titulo, seo_descripcion,
+peso_kg, alto_cm, ancho_cm, profundidad_cm,
+categoria_tiendanube,
+prop1_nombre, prop1_valor,
+prop2_nombre, prop2_valor,
+prop3_nombre, prop3_valor
+```
 
 ---
 
-## Lógica de clasificación (prioridad)
-1. **Correcciones aprendidas** (`corrections`) — confianza 100%, fuente `APRENDIDO`
-2. **IA Groq** (`classify.js`) — si confianza IA ≥ confianza reglas, fuente `IA`
-3. **Reglas dinámicas** (`classification_rules`) — scoring con keywords + regex; fuente `REGLAS`
+## Lógica de clasificación
 
-### `classifyProduct(product, rules)`
-- Carga reglas desde Supabase al montar; fallback a `DEFAULT_RULES` de `constants.js`
-- Niveles de regla: `rubro_pattern` (peso 40) → `subrubro_pattern` (peso 30) → `keyword` (peso variable)
-- Score ≥ 30 → REPUESTO; ≥ 10 → ACCESORIO; ≤ -20 → SERVICIO; con keyword completo → PRODUCTO_COMPLETO; else OTRO
-- **NO modificar esta función sin revisar los DEFAULT_RULES de `constants.js`**
+### Prioridad (de mayor a menor):
+1. **Correcciones aprendidas** (tabla corrections) — confianza 100%, fuente APRENDIDO
+2. **IA Groq** (api/classify.js) — si confianza > reglas locales, fuente IA
+3. **Reglas locales** (classifyProduct en App.jsx) — keywords + scoring, fuente REGLAS
 
-### Procesamiento en chunks
-- `processProductsChunked(products, corrections, rules, chunkSize=200, progressCb)`
-- Cada 200 items llama `await wait(0)` para liberar el hilo principal (evita freeze en lotes grandes)
+### Categorías de clasificación:
+- REPUESTO — pieza que reemplaza parte dañada de un equipo
+- ACCESORIO — pieza complementaria para instalaciones
+- PRODUCTO_COMPLETO — equipo autónomo
+- SERVICIO — mano de obra o instalación
+- OTRO — no encaja claramente
+
+### NUNCA modificar:
+- La función classifyProduct() en App.jsx
+- Los arrays REPUESTO_KEYWORDS, ACCESORIO_KEYWORDS, PRODUCTO_COMPLETO_KEYWORDS
+- El orden de prioridad correcciones > IA > reglas
 
 ---
 
-## Vistas
+## Lógica de enriquecimiento (api/enrich.js)
 
-| Vista | Ruta interna | Descripción |
+Al enriquecer productos para Tienda Nube, Groq genera:
+- slug, nombre_limpio, marca
+- descripcion_html (formato HTML con especificaciones técnicas)
+- tags, seo_titulo, seo_descripcion
+- peso_kg, alto_cm, ancho_cm, profundidad_cm (estimados)
+- categoria_tiendanube (path completo 4 niveles)
+- es_categoria_nueva + keywords_sugeridas (si sugiere nivel4 nuevo)
+
+### Categorías TN — REGLAS ESTRICTAS para la IA:
+La IA DEBE elegir de la lista exacta cargada desde tiendanube_categories.
+- Siempre devolver el path completo: "Nivel1 > Nivel2 > Nivel3 > Nivel4"
+- Nunca inventar nivel1, nivel2 ni nivel3
+- Puede sugerir nivel4 nuevo SOLO si:
+  * Es genérico (aplica a múltiples productos)
+  * Máximo 3 palabras en español
+  * nivel1+nivel2+nivel3 ya existen
+  * 2+ productos lo sugieren (para creación automática)
+  * Tiene coherencia con las categorías existentes del mismo nivel3
+
+### Coherencia de nivel4:
+Antes de sugerir un nivel4, verificar que sea consistente con los
+nivel4 ya existentes bajo el mismo nivel3.
+Ejemplo: si Calderas ya tiene "Plaquetas y Electrónica", "Hidráulicos",
+"Quemadores y Encendido" → un nuevo nivel4 debe seguir ese estilo
+(sustantivos + adjetivo, no verbos, en español).
+
+---
+
+## Exportación a Tienda Nube
+
+### Formato CSV — 24 columnas, separador punto y coma (;):
+```
+"Identificador de URL";Nombre;Categorías;Precio;"Precio promocional";
+"Peso (kg)";"Alto (cm)";"Ancho (cm)";"Profundidad (cm)";Stock;SKU;
+"Código de barras";"Mostrar en tienda";"Envío sin cargo";Descripción;
+Tags;"Título para SEO";"Descripción para SEO";Marca;"Producto Físico";
+"MPN (Número de pieza del fabricante)";Sexo;"Rango de edad";Costo
+```
+
+### Valores fijos:
+- Stock: 1
+- Envío sin cargo: NO
+- Producto Físico: SI
+- Precio promocional, Código de barras, Sexo, Rango de edad, Costo: vacíos
+- Mostrar en tienda: SI si precio > 0, NO si precio = 0
+
+### Precio formato: 1,615,050.00 (coma para miles, punto para decimales)
+### Encoding: UTF-8 con BOM (﻿)
+
+---
+
+## Vistas de la app
+
+| Vista | Ruta estado | Descripción |
 |-------|-------------|-------------|
-| `home` | Inicio | Banner sesión activa · stats de sesión · últimos 5 del historial · bienvenida si vacío |
-| `upload` | Nuevo análisis | Paste de texto o carga CSV/Excel tabular |
-| `dashboard` | Dashboard | Stats cards · distribución · top rubros · top categorías · progreso IA |
-| `table` | Tabla | Tabla paginada 50/página con filtros, búsqueda, edición inline, selección masiva |
-| `exportTN` | Tienda Nube | 3 pasos: selección → enriquecimiento IA → preview + descarga CSV |
-| `history` | Historial | Lista con filtros de fecha · badges `has_enriched` · acciones ver/renombrar/eliminar |
-| `historyDetail` | Historial · [nombre] | Tabla de productos · exportar CSV · exportar CSV TN (si enriquecido) · eliminar |
-| `learning` | Aprendizaje | Tabla paginada de correcciones de clasificación · búsqueda · eliminar · importar CSV · borrar todo |
-| `tnLearning` | Aprendizaje TN | Tabla de correcciones de categoría Tienda Nube · edición en cascada · eliminar · exportar CSV |
-| `tnCategories` | Categorías TN 🛍 | Árbol jerárquico de `tiendanube_categories` (nivel1–nivel4) · CRUD inline · keywords chips |
-| `classificationRules` | Reglas | CRUD de reglas dinámicas en Supabase · toggle activa/inactiva · reset a defaults |
-| `settings` | Ajustes | API key Groq · opciones CSV Tienda Nube (stock, SKU prefix) · limpiar sesión |
+| upload | view='upload' | Carga por paste o CSV/XLSX |
+| dashboard | view='dashboard' | Stats, distribución, IA |
+| table | view='table' | Tabla con filtros, edición, selección/borrado |
+| exportTN | view='exportTN' | 3 pasos: selección → enriquecer → CSV |
+| history | view='history' | Lista de análisis guardados |
+| historyDetail | view='historyDetail' | Detalle de un análisis |
+| categories | view='tnCategories' | Gestión de categorías TN (paneles cascada) |
+| learning | view='learning' | Gestión de correcciones aprendidas |
+| settings | view='settings' | Ajustes generales |
 
 ---
 
-## Módulo Tienda Nube
+## Funciones API (Vercel)
 
-### Formato CSV
-- Separador: `;` (punto y coma)
-- Encoding: UTF-8 con BOM (`﻿`)
-- **24 columnas** en orden exacto (no modificar sin testear importación)
-- Nombre de archivo: `tiendanube_repuestos.csv`
+| Función | Métodos | Descripción |
+|---------|---------|-------------|
+| api/classify.js | POST | Clasificación IA con Groq + correcciones Supabase |
+| api/corrections.js | GET, POST, DELETE | Correcciones aprendidas (clasificación + enriquecimiento) |
+| api/history.js | GET, POST, PUT, DELETE, PATCH | Historial de análisis |
+| api/enrich.js | POST | Enriquecimiento para TN con Groq |
+| api/tn-categories.js | GET, POST, PUT, DELETE | Categorías Tienda Nube |
+| api/tn-corrections.js | GET, POST, DELETE | Correcciones de categoría TN |
+| api/rules.js | GET, POST, DELETE | Reglas dinámicas de clasificación |
+| api/categories.js | — | DEPRECATED, no usar |
 
-### Campo `_enriched`
-- En sesión activa: vive en memoria en el objeto del producto
-- Al guardar: `saveAnalysis` mapea `_enriched` a 12 columnas planas en `analysis_products`
-- Al cargar historial: `loadHistoryDetail` reconstruye `_enriched` desde columnas planas (`tags` se parsea de JSON)
-- Sin enriquecimiento: CSV usa `slugify(PRODUCTO)` + `buildCategoriaTN(p)` como fallback
+### Patrón estándar de cada función:
+```js
+export default async function handler(req, res) {
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_KEY = process.env.SUPABASE_KEY;
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Variables de Supabase no configuradas' });
+  }
+  // ... lógica
+}
+```
 
 ---
 
 ## Reglas de desarrollo
-- **NO** modificar `classifyProduct()` sin revisar DEFAULT_RULES y tests manuales
-- **NO** instalar librerías de UI (Tailwind, MUI, Chakra, etc.) — solo inline styles con `C`
-- **NO** instalar React Router — navegación con `activeView` en `App.jsx`
-- **NO** cambiar formato del CSV de Tienda Nube (24 columnas, separador `;`) — está probado en producción
-- **NO** romper las integraciones Supabase existentes
-- Usar `GROQ_API_KEY` (no Gemini, no OpenAI directo)
-- Todas las funciones serverless: `OPTIONS` handler + CORS headers en toda respuesta
-- Nuevos campos en `analysis_products` → agregar migración en `supabase_todo.sql`
-- Nuevas tablas de clasificación → SQL en `supabase_rules.sql`
+
+### SIEMPRE:
+- Usar SUPABASE_URL y SUPABASE_KEY (sin prefijo VITE_)
+- CORS headers en todas las respuestas de funciones API
+- Manejar OPTIONS para preflight
+- Validar body antes de operar
+- Toast de éxito/error para cada acción del usuario
+- npm run build sin errores antes de cada commit
+
+### NUNCA:
+- Modificar classifyProduct() ni sus keywords arrays
+- Instalar librerías de UI (Tailwind, MUI, etc.)
+- Usar React Router
+- Hardcodear categorías TN (siempre leer de Supabase)
+- Inventar nivel1, nivel2 ni nivel3 en categorías TN
+- Usar prefijo VITE_ en funciones serverless
+
+### Commits:
+Un commit por funcionalidad. Mensaje descriptivo en inglés.
+Verificar npm run build antes de cada push.
+
+---
+
+## Flujo completo de trabajo
+
+1. Cargar productos (paste desde Google Sheets o CSV/XLSX)
+2. Clasificación automática (reglas locales + correcciones aprendidas)
+3. Activar IA para mejorar clasificación ambigua
+4. Revisar y corregir manualmente en la tabla (se aprende automáticamente)
+5. Ir a Exportar → Tienda Nube
+6. Seleccionar productos (por defecto: REPUESTO + ACCESORIO)
+7. Enriquecer con IA (descripción, categoría, marca, dimensiones)
+8. La IA crea nivel4 si falta y tiene sentido
+9. Revisar y editar campos si es necesario
+10. Descargar CSV y guardar análisis en historial
+11. Importar CSV en Tienda Nube → Productos → Importar
