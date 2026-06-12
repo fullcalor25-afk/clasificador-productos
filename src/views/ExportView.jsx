@@ -29,6 +29,8 @@ export default function ExportView({
   const [enrichProcessed, setEnrichProcessed] = useState(0);
   const [individualEditingProduct, setIndividualEditingProduct] = useState(null);
   const [showExportWarning, setShowExportWarning] = useState(false);
+  const [sinNivel4, setSinNivel4] = useState([]);
+  const [nivel4Loading, setNivel4Loading] = useState(false);
   const enrichAbortRef = useRef(false);
 
   // Filtered selection list
@@ -122,40 +124,46 @@ export default function ExportView({
       }
     }
 
-    // ── Auto-create new subcategories suggested by the AI ────────────────────
+    // ── Auto-create nivel4 sugeridos por la IA (validación estricta) ──────────
     if (!enrichAbortRef.current && loadTnCategories) {
       const suggestions = {};
       allEnrichedResults.forEach(r => {
-        if (r.es_categoria_nueva && r.categoria_tiendanube && r.keywords_sugeridas) {
-          const cat = r.categoria_tiendanube.trim();
-          if (!suggestions[cat]) suggestions[cat] = { count: 0, keywords: r.keywords_sugeridas };
-          suggestions[cat].count++;
-        }
+        if (!r.es_categoria_nueva || !r.categoria_tiendanube) return;
+        const cat = r.categoria_tiendanube.trim();
+        const parts = cat.split(" > ").map(p => p.trim());
+        // Exactamente 4 partes
+        if (parts.length !== 4) return;
+        const [n1, n2, n3, n4] = parts;
+        // nivel3 debe existir en tnCategories
+        const nivel3Existe = tnCategories.some(c => c.nivel3 === n3 && c.nivel2 === n2 && c.nivel1 === n1);
+        if (!nivel3Existe) return;
+        // nivel4 NO debe existir (case-insensitive)
+        const nivel4Existe = tnCategories.some(c =>
+          c.nivel3 === n3 && c.nivel2 === n2 && c.nivel1 === n1 &&
+          c.nivel4 && c.nivel4.toLowerCase() === n4.toLowerCase()
+        );
+        if (nivel4Existe) return;
+        // máximo 5 palabras en nivel4
+        if (n4.split(/\s+/).length > 5) return;
+        if (!suggestions[cat]) suggestions[cat] = { count: 0, keywords: r.keywords_sugeridas, parts };
+        suggestions[cat].count++;
       });
 
-      const toCreate = Object.entries(suggestions).filter(([cat, d]) => {
-        if (d.count < 2) return false; // debe aparecer en 2+ productos
-        // no crear si ya existe (case-insensitive)
-        return !tnCategories.some(c => {
-          const path = [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(" > ");
-          return path.toLowerCase() === cat.toLowerCase();
-        });
-      });
+      const toCreate = Object.entries(suggestions).filter(([, d]) => d.count >= 2);
 
       if (toCreate.length > 0) {
         let created = 0;
         for (const [catPath, catData] of toCreate) {
-          const parts = catPath.split(" > ").map(p => p.trim());
-          if (parts.length < 2 || parts.length > 4) continue;
+          const { parts } = catData;
           try {
             await apiFetch("/api/tn-categories", {
               method: "POST",
               body: JSON.stringify({
-                nivel1: parts[0] || null,
-                nivel2: parts[1] || null,
-                nivel3: parts[2] || null,
-                nivel4: parts[3] || null,
-                keywords: catData.keywords,
+                nivel1: parts[0],
+                nivel2: parts[1],
+                nivel3: parts[2],
+                nivel4: parts[3],
+                keywords: catData.keywords || null,
               }),
             });
             created++;
@@ -165,14 +173,20 @@ export default function ExportView({
         }
         if (created > 0) {
           await loadTnCategories();
-          const names = toCreate
-            .slice(0, created)
-            .map(([cat]) => cat.split(" > ").pop())
-            .join(", ");
+          const names = toCreate.slice(0, created).map(([cat]) => cat.split(" > ").pop()).join(", ");
           toast?.success(`✨ Nuevas subcategorías creadas: ${names}`);
         }
       }
     }
+
+    // ── Detectar productos sin nivel4 (para banner de completar) ─────────────
+    const productosSinNivel4 = classifiedProducts.filter(p => {
+      if (!selectedIds.includes(p._id)) return false;
+      const cat = p._enriched?.categoria_tiendanube || p._tn_manual || "";
+      const parts = cat.split(" > ").filter(Boolean);
+      return parts.length < 4;
+    });
+    setSinNivel4(productosSinNivel4);
 
     setEnrichLoading(false);
     if (!enrichAbortRef.current) {
@@ -191,6 +205,42 @@ export default function ExportView({
       if (product) onProductCorrected({ ...product, _enriched: fields });
     }
     setIndividualEditingProduct(null);
+  };
+
+  const handleCompletarNivel4 = async () => {
+    if (sinNivel4.length === 0) return;
+    setNivel4Loading(true);
+    toast?.info?.(`Completando nivel4 para ${sinNivel4.length} productos...`);
+    const batchSize = 15;
+    for (let i = 0; i < Math.ceil(sinNivel4.length / batchSize); i++) {
+      const batch = sinNivel4.slice(i * batchSize, (i + 1) * batchSize);
+      if (i > 0) await new Promise(r => setTimeout(r, 3000));
+      try {
+        const res = await fetchWithTimeout("/api/enrich", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ products: batch, tnCategories, force_nivel4: true }),
+        });
+        const data = await res.json();
+        if (res.ok && data.results) {
+          data.results.forEach(result => {
+            if (!result.categoria_tiendanube) return;
+            const parts = result.categoria_tiendanube.split(" > ").filter(Boolean);
+            if (parts.length < 4) return;
+            const orig = classifiedProducts.find(p => p.CODIGO === result.codigo);
+            if (orig && updateProductEnriched) {
+              const merged = { ...(orig._enriched || {}), categoria_tiendanube: result.categoria_tiendanube };
+              updateProductEnriched(orig._id, merged);
+            }
+          });
+        }
+      } catch (e) {
+        console.error("Error completando nivel4 lote", i, e);
+      }
+    }
+    setSinNivel4([]);
+    setNivel4Loading(false);
+    toast?.success?.("✅ nivel4 completado en todos los productos.");
   };
 
   const handleDownloadClick = () => {
@@ -483,16 +533,32 @@ export default function ExportView({
 
             {/* Finished view */}
             {!enrichLoading && enrichProcessed > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ color: C.success, fontSize: 14, fontWeight: 700 }}>
-                  ✅ {enrichProcessed} productos enriquecidos correctamente con IA
-                </span>
-                <button
-                  onClick={() => setStep(3)}
-                  style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.accent, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                >
-                  Siguiente → Ver Catálogo CSV
-                </button>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ color: C.success, fontSize: 14, fontWeight: 700 }}>
+                    ✅ {enrichProcessed} productos enriquecidos correctamente con IA
+                  </span>
+                  <button
+                    onClick={() => setStep(3)}
+                    style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.accent, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    Siguiente → Ver Catálogo CSV
+                  </button>
+                </div>
+                {sinNivel4.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: `${C.warning}12`, border: `1px solid ${C.warning}40`, borderRadius: 10 }}>
+                    <span style={{ fontSize: 12, color: C.warning, fontWeight: 600 }}>
+                      ⚠️ {sinNivel4.length} productos con categoría incompleta (sin nivel4)
+                    </span>
+                    <button
+                      onClick={handleCompletarNivel4}
+                      disabled={nivel4Loading}
+                      style={{ padding: "6px 14px", borderRadius: 7, border: "none", background: nivel4Loading ? C.border : C.warning, color: nivel4Loading ? C.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: nivel4Loading ? "default" : "pointer" }}
+                    >
+                      {nivel4Loading ? "Completando..." : "Completar nivel4 con IA"}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

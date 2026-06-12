@@ -3,15 +3,62 @@ const MODELS = [
   'llama-3.1-8b-instant',
 ]
 
-function buildSystemPrompt(tnCats) {
+function buildSystemPrompt(tnCats, force_nivel4 = false) {
   const catList = tnCats && tnCats.length > 0
     ? tnCats.map(c => [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(' > ')).filter(Boolean).join('\n')
     : 'Repuestos y Accesorios > Calefaccion\nRepuestos y Accesorios > Refrigeracion\nRepuestos y Accesorios > Gas y Agua\nRepuestos y Accesorios > Agua Sanitaria\nRepuestos y Accesorios > Herramientas'
 
-  return `Sos un experto en repuestos HVAC (calefacción, refrigeración, gas, agua sanitaria) para el mercado argentino. Completá los datos de cada producto para una tienda online en Tienda Nube.
+  // Mapa de nivel4 existentes por nivel3 para contexto de coherencia
+  const nivel4PorNivel3 = {}
+  if (tnCats && tnCats.length > 0) {
+    tnCats.forEach(c => {
+      if (!c.nivel3 || !c.nivel4) return
+      const key = `${c.nivel2} > ${c.nivel3}`
+      if (!nivel4PorNivel3[key]) nivel4PorNivel3[key] = []
+      if (!nivel4PorNivel3[key].includes(c.nivel4)) nivel4PorNivel3[key].push(c.nivel4)
+    })
+  }
+  const nivel4Contexto = Object.entries(nivel4PorNivel3)
+    .map(([k, v]) => `${k}: ${v.join(' | ')}`)
+    .join('\n')
 
-CATEGORÍAS DISPONIBLES (elegí EXACTAMENTE una, sin modificar el texto):
+  const forceNivel4Block = force_nivel4
+    ? '\nATENCIÓN: Para TODOS los productos de esta lista, el path de categoría llega solo hasta nivel3. DEBES agregar un nivel4 específico y coherente con los existentes en ese nivel3. No devolver paths sin nivel4.\n'
+    : ''
+
+  return `Sos un experto en repuestos HVAC (calefacción, refrigeración, gas, agua sanitaria) para el mercado argentino. Completá los datos de cada producto para una tienda online en Tienda Nube.
+${forceNivel4Block}
+CATEGORÍAS DISPONIBLES (elegí EXACTAMENTE una):
 ${catList}
+
+REGLAS ESTRICTAS para categoria_tiendanube:
+1. SIEMPRE devolver el path completo con los 4 niveles cuando existen
+2. Formato exacto: "Nivel1 > Nivel2 > Nivel3 > Nivel4"
+3. Copiar el texto EXACTAMENTE de la lista, sin modificar
+4. Si el producto encaja perfectamente en una categoría existente → usarla
+5. Si el nivel3 existe pero no hay nivel4 adecuado → podés sugerir uno nuevo
+
+CUÁNDO sugerir nivel4 nuevo:
+- El producto no encaja en ningún nivel4 existente del nivel3 correcto
+- El tipo de repuesto es claramente distinto a los nivel4 ya existentes
+- El nombre sugerido sigue el estilo de los existentes (ver referencia abajo)
+
+ESTILO de nivel4 — seguir este patrón exacto (sustantivo + complemento):
+${nivel4Contexto}
+
+CÓMO sugerir nivel4 nuevo:
+- Usar el mismo estilo que los existentes del mismo nivel3
+- Ejemplos válidos: "Intercambiadores de Calor", "Motores y Ventiladores", "Juntas y Empaques", "Electrónica de Control"
+- Ejemplos NO válidos: "Fan Inducer Goodman", "Repuesto específico BTG12"
+- NUNCA inventar nivel1, nivel2 ni nivel3 nuevos
+
+Si sugerís nivel4 nuevo:
+  "es_categoria_nueva": true,
+  "keywords_sugeridas": "keyword1,keyword2,keyword3"
+
+Si usás categoría existente:
+  "es_categoria_nueva": false,
+  "keywords_sugeridas": null
 
 Para cada producto devolvé SOLO un JSON array válido sin markdown ni backticks.
 Formato exacto por producto:
@@ -89,18 +136,7 @@ ESTIMACIONES DE PESO Y DIMENSIONES:
 ABREVIACIONES HVAC ARGENTINA:
 UM→Unidad Magnética | TF→Tiro Forzado | TN→Tiro Natural | M-H→Macho-Hembra | F-F→Femenino-Femenino | BSP/NPT→rosca | MM→milímetros | FASTON→conector eléctrico | NTC/PTC→sensor temperatura
 
-REGLAS PARA categoria_tiendanube:
-1. PREFERENCIA: elegí SIEMPRE una categoría existente de la lista si encaja. En ese caso es_categoria_nueva = false.
-2. Si no encaja en ninguna, podés sugerir nivel3 o nivel4 nuevo SOLO si: nombre genérico, máx 3 palabras, español, nivel1/nivel2 ya existen.
-3. NO inventes nivel1 ni nivel2 nuevos.
-4. Cuando es_categoria_nueva = true, completá keywords_sugeridas con 3-5 palabras clave separadas por coma.
-
-IMPORTANTE sobre categoria_tiendanube:
-- El campo debe ser el path COMPLETO con todos los niveles separados por " > "
-- Formato: "Nivel1 > Nivel2 > Nivel3 > Nivel4"
-- Usar EXACTAMENTE los textos de la lista de categorías disponibles, sin abreviar ni modificar
-- Ejemplo correcto: "Repuestos y Accesorios > Calefacción > Calderas > Plaquetas y Electrónica"
-- Ejemplo incorrecto: "Calderas > Plaquetas" o "Repuestos > Calderas"`
+Recordá: categoria_tiendanube debe ser SIEMPRE el path completo de 4 niveles copiado exactamente de la lista.`
 }
 
 function setCORS(res) {
@@ -122,11 +158,11 @@ export default async function handler(req, res) {
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'GROQ_API_KEY no configurada' })
 
-  const { products, tnCategories } = req.body || {}
+  const { products, tnCategories, force_nivel4 = false } = req.body || {}
   if (!products || !Array.isArray(products) || products.length === 0)
     return res.status(400).json({ error: 'No se enviaron productos' })
 
-  const SYSTEM_PROMPT = buildSystemPrompt(tnCategories || [])
+  const SYSTEM_PROMPT = buildSystemPrompt(tnCategories || [], force_nivel4)
 
   const batch = products.slice(0, 15)
   const userPrompt = 'Productos:\n' + JSON.stringify(

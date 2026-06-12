@@ -241,6 +241,12 @@ export default function TableView({
     if (parts.length === 0) return <span style={{ color: C.textDim }}>—</span>;
     const isManual = p._tn_manual;
     const isSuggested = !isManual && !p._enriched?.categoria_tiendanube;
+    const depth = parts.length;
+    const depthBadge = depth >= 4
+      ? { symbol: "✓", color: C.success, title: "Categoría completa (4 niveles)" }
+      : depth === 3
+      ? { symbol: "⚠", color: C.warning, title: "Falta nivel4 — clic para completar" }
+      : { symbol: "✗", color: C.danger, title: `Solo ${depth} nivel${depth !== 1 ? "es" : ""}` };
     return (
       <span style={{ fontSize: 12, opacity: isSuggested ? 0.6 : 1 }}>
         {parts.map((part, i) => (
@@ -253,6 +259,12 @@ export default function TableView({
           </React.Fragment>
         ))}
         {isManual && <span style={{ marginLeft: 4, fontSize: 10, color: C.accent }} title="Categoría corregida manualmente">✎</span>}
+        <span
+          style={{ marginLeft: 4, fontSize: 10, color: depthBadge.color, cursor: depth === 3 ? "pointer" : "default", fontWeight: 700 }}
+          title={depthBadge.title}
+        >
+          {depthBadge.symbol}
+        </span>
       </span>
     );
   };
