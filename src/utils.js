@@ -57,8 +57,7 @@ export function buildCategoriaTN(product, tnCategories = []) {
     });
     if (bestMatch && bestScore > 0) {
       return [
-        bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3,
-        bestMatch.nivel4, bestMatch.nivel5, bestMatch.nivel6,
+        bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3, bestMatch.nivel4,
       ].filter(Boolean).join(" > ");
     }
   }
@@ -74,7 +73,6 @@ export function buildCategoriaTN(product, tnCategories = []) {
   return "Repuestos y Accesorios";
 }
 
-// Prioridad explícita: manual > IA enriched > keyword matching
 export function getCategoriaTN(product, tnCategories = []) {
   if (product._tn_manual && product._enriched?.categoria_tiendanube) {
     return product._enriched.categoria_tiendanube;
@@ -82,7 +80,27 @@ export function getCategoriaTN(product, tnCategories = []) {
   if (product._enriched?.categoria_tiendanube) {
     return product._enriched.categoria_tiendanube;
   }
-  return buildCategoriaTN(product, tnCategories);
+  if (tnCategories.length > 0 && product.PRODUCTO) {
+    const nombre = (product.PRODUCTO || "").toLowerCase();
+    let bestMatch = null;
+    let bestScore = 0;
+    tnCategories.forEach(cat => {
+      if (!cat.keywords) return;
+      const kws = cat.keywords.split(",").map(k => k.trim().toLowerCase());
+      const score = kws.filter(kw => kw && nombre.includes(kw)).length;
+      if (score > bestScore) { bestScore = score; bestMatch = cat; }
+    });
+    if (bestMatch && bestScore > 0) {
+      return [bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3, bestMatch.nivel4]
+        .filter(Boolean).join(" > ");
+    }
+  }
+  if (product._categoria) {
+    const parts = ["Repuestos y Accesorios", product._categoria, product._subcategoria]
+      .filter(Boolean);
+    return parts.join(" > ");
+  }
+  return "Repuestos y Accesorios";
 }
 
 export function getProductPrice(p) {
@@ -336,17 +354,11 @@ export async function apiFetch(url, options = {}) {
 export function exportTiendaNubeCSV(productos, tnCategories = []) {
   const SEP = ";";
 
-  // 30 columnas en el orden exacto de Tienda Nube
+  // 24 columnas — formato exacto de la tienda real
   const HEADERS = [
     '"Identificador de URL"',
     'Nombre',
     'Categorías',
-    '"Nombre de propiedad 1"',
-    '"Valor de propiedad 1"',
-    '"Nombre de propiedad 2"',
-    '"Valor de propiedad 2"',
-    '"Nombre de propiedad 3"',
-    '"Valor de propiedad 3"',
     'Precio',
     '"Precio promocional"',
     '"Peso (kg)"',
@@ -378,18 +390,26 @@ export function exportTiendaNubeCSV(productos, tnCategories = []) {
     return '"' + str.replace(/"/g, '""') + '"';
   }
 
-  // Número con coma decimal (formato argentino)
+  // Precio formato TN: 1,615,050.00 (coma miles, punto decimal)
+  function formatPrecio(value) {
+    if (!value && value !== 0) return '';
+    const num = parseFloat(String(value).replace(/,/g, '')) || 0;
+    if (num === 0) return '';
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // Número simple para dimensiones
   function n(value) {
     if (!value && value !== 0) return '';
     const num = parseFloat(String(value).replace(',', '.'));
-    return isNaN(num) ? '' : String(num).replace('.', ',');
+    return isNaN(num) ? '' : String(num);
   }
 
   const rows = productos.map(p => {
     const e = p._enriched || {};
 
     const precioRaw = p.PRECIO || p.precio || p.Precio || p.PRICE || 0;
-    const precio = parseFloat(String(precioRaw).replace(',', '.')) || 0;
+    const precio = parseFloat(String(precioRaw).replace(/,/g, '')) || 0;
     const mostrar = precio > 0 ? 'SI' : 'NO';
 
     const slug     = e.slug          || slugify(p.PRODUCTO || p.producto || '');
@@ -403,36 +423,30 @@ export function exportTiendaNubeCSV(productos, tnCategories = []) {
     const mpn      = p['CODIGO EXTERNO'] || p.codigo_externo || '';
 
     return [
-      f(slug),                           // Identificador de URL
-      f(nombre),                         // Nombre
-      f(categoria),                      // Categorías
-      f(e.prop1_nombre || ''),           // Nombre de propiedad 1
-      f(e.prop1_valor  || ''),           // Valor de propiedad 1
-      f(e.prop2_nombre || ''),           // Nombre de propiedad 2
-      f(e.prop2_valor  || ''),           // Valor de propiedad 2
-      f(e.prop3_nombre || ''),           // Nombre de propiedad 3
-      f(e.prop3_valor  || ''),           // Valor de propiedad 3
-      precio > 0 ? n(precio) : '',       // Precio
-      '',                                // Precio promocional (siempre vacío)
-      n(e.peso_kg),                      // Peso (kg)
-      n(e.alto_cm),                      // Alto (cm)
-      n(e.ancho_cm),                     // Ancho (cm)
-      n(e.profundidad_cm),               // Profundidad (cm)
-      '1',                               // Stock (siempre 1)
-      f(p.CODIGO || p.codigo || ''),     // SKU
-      '',                                // Código de barras (siempre vacío)
-      mostrar,                           // Mostrar en tienda
-      'NO',                              // Envío sin cargo (siempre NO)
-      f(desc),                           // Descripción
-      f(tags),                           // Tags
-      f(seoT),                           // Título para SEO
-      f(seoD),                           // Descripción para SEO
-      f(marca),                          // Marca
-      'SI',                              // Producto Físico (siempre SI)
-      f(mpn),                            // MPN
-      '',                                // Sexo (siempre vacío)
-      '',                                // Rango de edad (siempre vacío)
-      '',                                // Costo (siempre vacío)
+      f(slug),               // Identificador de URL
+      f(nombre),             // Nombre
+      f(categoria),          // Categorías
+      formatPrecio(precio),  // Precio
+      '',                    // Precio promocional
+      n(e.peso_kg),          // Peso (kg)
+      n(e.alto_cm),          // Alto (cm)
+      n(e.ancho_cm),         // Ancho (cm)
+      n(e.profundidad_cm),   // Profundidad (cm)
+      '1',                   // Stock
+      f(p.CODIGO || p.codigo || ''), // SKU
+      '',                    // Código de barras
+      mostrar,               // Mostrar en tienda
+      'NO',                  // Envío sin cargo
+      f(desc),               // Descripción
+      f(tags),               // Tags
+      f(seoT),               // Título para SEO
+      f(seoD),               // Descripción para SEO
+      f(marca),              // Marca
+      'SI',                  // Producto Físico
+      f(mpn),                // MPN
+      '',                    // Sexo
+      '',                    // Rango de edad
+      '',                    // Costo
     ].join(SEP);
   });
 
@@ -456,6 +470,8 @@ export function exportHistoryTiendaNubeCSV(histProductos) {
     PRODUCTO:      p.producto  || "",
     RUBRO:         p.rubro     || "",
     "SUB RUBRO":   p.sub_rubro || "",
+    PRECIO:        p.precio    || "",
+    _tn_manual:    p.tn_manual || false,
     _categoria:    null,
     _subcategoria: null,
     _enriched:     p._enriched,

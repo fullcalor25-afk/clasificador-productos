@@ -93,7 +93,14 @@ REGLAS PARA categoria_tiendanube:
 1. PREFERENCIA: elegí SIEMPRE una categoría existente de la lista si encaja. En ese caso es_categoria_nueva = false.
 2. Si no encaja en ninguna, podés sugerir nivel3 o nivel4 nuevo SOLO si: nombre genérico, máx 3 palabras, español, nivel1/nivel2 ya existen.
 3. NO inventes nivel1 ni nivel2 nuevos.
-4. Cuando es_categoria_nueva = true, completá keywords_sugeridas con 3-5 palabras clave separadas por coma.`
+4. Cuando es_categoria_nueva = true, completá keywords_sugeridas con 3-5 palabras clave separadas por coma.
+
+IMPORTANTE sobre categoria_tiendanube:
+- El campo debe ser el path COMPLETO con todos los niveles separados por " > "
+- Formato: "Nivel1 > Nivel2 > Nivel3 > Nivel4"
+- Usar EXACTAMENTE los textos de la lista de categorías disponibles, sin abreviar ni modificar
+- Ejemplo correcto: "Repuestos y Accesorios > Calefacción > Calderas > Plaquetas y Electrónica"
+- Ejemplo incorrecto: "Calderas > Plaquetas" o "Repuestos > Calderas"`
 }
 
 function setCORS(res) {

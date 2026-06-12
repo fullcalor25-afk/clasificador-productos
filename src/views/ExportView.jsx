@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from "react";
 import { C, CLS } from "../constants";
-import { getProductPrice, slugify, buildCategoriaTN, exportTiendaNubeCSV, fetchWithTimeout, apiFetch } from "../utils";
+import { getProductPrice, slugify, getCategoriaTN, buildCategoriaTN, exportTiendaNubeCSV, fetchWithTimeout, apiFetch } from "../utils";
 
 export default function ExportView({
   classifiedProducts,
@@ -28,6 +28,7 @@ export default function ExportView({
   const [enrichStatus, setEnrichStatus] = useState("");
   const [enrichProcessed, setEnrichProcessed] = useState(0);
   const [individualEditingProduct, setIndividualEditingProduct] = useState(null);
+  const [showExportWarning, setShowExportWarning] = useState(false);
   const enrichAbortRef = useRef(false);
 
   // Filtered selection list
@@ -192,21 +193,27 @@ export default function ExportView({
     setIndividualEditingProduct(null);
   };
 
-  // CSV generate and download
-  const handleDownload = () => {
-    exportTiendaNubeCSV(selectedProducts, tnCategories);
+  const handleDownloadClick = () => {
+    const { withoutPrice, withoutCat, withoutDesc } = stats;
+    if (withoutPrice > 0 || withoutCat > 0 || withoutDesc > 0) {
+      setShowExportWarning(true);
+    } else {
+      exportTiendaNubeCSV(selectedProducts, tnCategories);
+    }
   };
 
-  // Pricing stats
   const stats = useMemo(() => {
-    let withPrice = 0;
-    let withoutPrice = 0;
+    let withPrice = 0, withoutPrice = 0, withCat = 0, withoutCat = 0, withEnrich = 0, withoutDesc = 0;
     selectedProducts.forEach(p => {
-      if (getProductPrice(p) > 0) withPrice++;
-      else withoutPrice++;
+      const price = getProductPrice(p);
+      if (price > 0) withPrice++; else withoutPrice++;
+      const cat = getCategoriaTN(p, tnCategories);
+      if (cat !== "Repuestos y Accesorios") withCat++; else withoutCat++;
+      if (p._enriched) withEnrich++;
+      if (!p._enriched?.descripcion_html) withoutDesc++;
     });
-    return { withPrice, withoutPrice };
-  }, [selectedProducts]);
+    return { withPrice, withoutPrice, withCat, withoutCat, withEnrich, withoutDesc };
+  }, [selectedProducts, tnCategories]);
 
   return (
     <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 24, paddingBottom: 40 }}>
@@ -597,103 +604,112 @@ export default function ExportView({
             <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 8 }}>
               Descarga tu Catálogo de Tienda Nube
             </h3>
-            <p style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.6, marginBottom: 20 }}>
-              Generá tu archivo CSV en formato exacto UTF-8 con BOM, separado por punto y coma (`;`).
-              El archivo contendrá <strong>{selectedProducts.length}</strong> productos listos para la importación directa.
+            <p style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.6, marginBottom: 16 }}>
+              CSV UTF-8 con BOM, separado por punto y coma, <strong>{selectedProducts.length}</strong> productos.
             </p>
 
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-              <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 16px", minWidth: 150 }}>
-                <div style={{ fontSize: 10, color: C.textDim, fontWeight: 700 }}>PRECIO ACTIVADO</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: C.success }}>{stats.withPrice} productos</div>
-              </div>
-              <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 16px", minWidth: 150 }}>
-                <div style={{ fontSize: 10, color: C.textDim, fontWeight: 700 }}>SIN PRECIO (OCULTOS)</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: C.danger }}>{stats.withoutPrice} productos</div>
-              </div>
-              <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 16px", minWidth: 150 }}>
-                <div style={{ fontSize: 10, color: C.textDim, fontWeight: 700 }}>ENRIQUECIDOS POR IA</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>{selectedProducts.filter(p => p._enriched).length} productos</div>
-              </div>
+            {/* Resumen */}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20, padding: "10px 14px", background: C.bg, borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 12, fontWeight: 600, alignItems: "center" }}>
+              <span style={{ color: C.success }}>✅ Con precio: {stats.withPrice}</span>
+              <span style={{ color: C.textDim }}>|</span>
+              <span style={{ color: C.danger }}>⚠️ Sin precio: {stats.withoutPrice}</span>
+              <span style={{ color: C.textDim }}>|</span>
+              <span style={{ color: C.text }}>📁 Con categoría: {stats.withCat}</span>
+              <span style={{ color: C.textDim }}>|</span>
+              <span style={{ color: C.accent }}>🤖 Enriquecidos: {stats.withEnrich}</span>
             </div>
 
-            <div style={{ display: "flex", gap: 10 }}>
+            {/* Advertencias + botón de descarga */}
+            {showExportWarning ? (
+              <div style={{ marginBottom: 20, padding: 16, background: `${C.warning}10`, border: `1px solid ${C.warning}40`, borderRadius: 10 }}>
+                <div style={{ fontWeight: 700, color: C.warning, marginBottom: 10, fontSize: 13 }}>Advertencias antes de exportar:</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: C.text, marginBottom: 14 }}>
+                  {stats.withoutPrice > 0 && (
+                    <div>⚠️ <strong>{stats.withoutPrice} productos sin precio</strong> → se exportarán como "Mostrar en tienda: NO"</div>
+                  )}
+                  {stats.withoutCat > 0 && (
+                    <div>⚠️ <strong>{stats.withoutCat} productos sin categoría</strong> → usarán "Repuestos y Accesorios" como fallback</div>
+                  )}
+                  {stats.withoutDesc > 0 && (
+                    <div>⚠️ <strong>{stats.withoutDesc} productos sin descripción</strong> → la ficha quedará vacía en Tienda Nube</div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => { exportTiendaNubeCSV(selectedProducts, tnCategories); setShowExportWarning(false); }}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: C.success, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    📥 Exportar de todas formas
+                  </button>
+                  <button
+                    onClick={() => setShowExportWarning(false)}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
               <button
-                onClick={handleDownload}
-                style={{
-                  padding: "12px 24px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: C.success,
-                  color: "#fff",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  boxShadow: "0 4px 6px -1px rgba(16,185,129,0.2)",
-                }}
+                onClick={handleDownloadClick}
+                style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: C.success, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 6px -1px rgba(16,185,129,0.2)", marginBottom: 24 }}
               >
-                📥 Descargar CSV Tienda Nube (30 columnas)
+                📥 Descargar CSV Tienda Nube (24 columnas)
               </button>
-            </div>
-
-            {/* Preview de primeras 3 filas */}
-            {selectedProducts.slice(0, 3).some(p => p._enriched) && (
-              <div style={{ marginTop: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", marginBottom: 8 }}>
-                  Vista previa (primeras {Math.min(3, selectedProducts.length)} filas)
-                </div>
-                <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${C.border}` }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                    <thead>
-                      <tr style={{ background: C.surface2 }}>
-                        {["SKU", "Nombre", "Categoría", "Precio", "Propiedades", "Mostrar"].map(h => (
-                          <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, color: C.textMuted, fontSize: 10, textTransform: "uppercase", borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedProducts.slice(0, 3).map((p, i) => {
-                        const e = p._enriched || {};
-                        const precio = parseFloat(String(p.PRECIO || p.precio || 0).replace(",", ".")) || 0;
-                        const cat = buildCategoriaTN(p, tnCategories);
-                        const props = [
-                          e.prop1_nombre && e.prop1_valor && `${e.prop1_nombre}: ${e.prop1_valor}`,
-                          e.prop2_nombre && e.prop2_valor && `${e.prop2_nombre}: ${e.prop2_valor}`,
-                          e.prop3_nombre && e.prop3_valor && `${e.prop3_nombre}: ${e.prop3_valor}`,
-                        ].filter(Boolean);
-                        return (
-                          <tr key={p._id || i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                            <td style={{ padding: "6px 10px", fontFamily: "monospace", color: C.textDim }}>{p.CODIGO || "—"}</td>
-                            <td style={{ padding: "6px 10px", fontWeight: 600, color: C.text, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {e.nombre_limpio || p.PRODUCTO || "—"}
-                            </td>
-                            <td style={{ padding: "6px 10px", color: C.textMuted, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {cat.split(" > ").pop() || "—"}
-                            </td>
-                            <td style={{ padding: "6px 10px", color: precio > 0 ? C.success : C.danger, fontWeight: 600 }}>
-                              {precio > 0 ? `$${precio.toLocaleString("es-AR")}` : "Sin precio"}
-                            </td>
-                            <td style={{ padding: "6px 10px", maxWidth: 220 }}>
-                              {props.length > 0
-                                ? <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                    {props.map((pp, j) => (
-                                      <span key={j} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: `${C.accent}12`, color: C.accent, whiteSpace: "nowrap" }}>{pp}</span>
-                                    ))}
-                                  </div>
-                                : <span style={{ color: C.textDim, fontStyle: "italic", fontSize: 10 }}>Sin enriquecer</span>
-                              }
-                            </td>
-                            <td style={{ padding: "6px 10px", fontWeight: 700, color: precio > 0 ? C.success : C.danger, fontSize: 10 }}>
-                              {precio > 0 ? "SI" : "NO"}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             )}
+
+            {/* Preview tabla completa */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", marginBottom: 8 }}>
+                Vista previa — {Math.min(selectedProducts.length, 50)} de {selectedProducts.length} productos
+              </div>
+              <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${C.border}`, maxHeight: 380, overflowY: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead style={{ position: "sticky", top: 0, background: C.surface2, zIndex: 1 }}>
+                    <tr>
+                      {["URL", "Nombre", "Categorías", "Precio", "Peso", "SKU", "Mostrar", "Descripción"].map(h => (
+                        <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, color: C.textMuted, fontSize: 10, textTransform: "uppercase", borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedProducts.slice(0, 50).map((p, i) => {
+                      const e = p._enriched || {};
+                      const precio = getProductPrice(p);
+                      const cat = getCategoriaTN(p, tnCategories);
+                      const noCat = cat === "Repuestos y Accesorios";
+                      const noDesc = !e.descripcion_html;
+                      const slug = e.slug || slugify(p.PRODUCTO || "");
+                      const descText = (e.descripcion_html || "").replace(/<[^>]+>/g, "");
+                      return (
+                        <tr key={p._id || i} style={{ borderBottom: `1px solid ${C.border}` }}>
+                          <td style={{ padding: "6px 10px", fontFamily: "monospace", fontSize: 10, color: C.textDim, maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slug || "—"}</td>
+                          <td style={{ padding: "6px 10px", fontWeight: 600, color: C.text, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {e.nombre_limpio || p.PRODUCTO || "—"}
+                          </td>
+                          <td style={{ padding: "6px 10px", color: noCat ? C.warning : C.textMuted, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {noCat ? "Sin categoría" : cat.split(" > ").slice(-2).join(" > ")}
+                          </td>
+                          <td style={{ padding: "6px 10px", color: precio > 0 ? C.success : C.danger, fontWeight: 600, whiteSpace: "nowrap" }}>
+                            {precio > 0 ? `$${precio.toLocaleString("es-AR")}` : "Sin precio"}
+                          </td>
+                          <td style={{ padding: "6px 10px", color: C.textMuted, whiteSpace: "nowrap" }}>
+                            {e.peso_kg ? `${e.peso_kg}kg` : "—"}
+                          </td>
+                          <td style={{ padding: "6px 10px", fontFamily: "monospace", fontSize: 10, color: C.textDim }}>{p.CODIGO || "—"}</td>
+                          <td style={{ padding: "6px 10px", fontWeight: 700, fontSize: 10, color: precio > 0 ? C.success : C.danger }}>
+                            {precio > 0 ? "SI" : "NO"}
+                          </td>
+                          <td style={{ padding: "6px 10px", color: noDesc ? C.textDim : C.text, fontStyle: noDesc ? "italic" : "normal", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {noDesc ? "Sin descripción" : descText.substring(0, 100) + (descText.length > 100 ? "…" : "")}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             <div style={{ marginTop: 16, padding: 12, borderRadius: 8, background: `${C.accent}12`, border: `1px solid ${C.accent}30`, fontSize: 12, color: C.accent, fontWeight: 500 }}>
               💡 <strong>Instrucciones:</strong> Entrá a tu administrador de <strong>Tienda Nube → Productos → Importar desde CSV</strong> y subí el archivo descargado. ¡Eso es todo!
