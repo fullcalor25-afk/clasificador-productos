@@ -28,29 +28,35 @@ function buildSystemPrompt(tnCats, force_nivel4 = false) {
 
   return `Sos un experto en repuestos HVAC (calefacción, refrigeración, gas, agua sanitaria) para el mercado argentino. Completá los datos de cada producto para una tienda online en Tienda Nube.
 ${forceNivel4Block}
-CATEGORÍAS DISPONIBLES (elegí EXACTAMENTE una):
+CATEGORÍAS DISPONIBLES — LISTA COMPLETA Y DEFINITIVA:
 ${catList}
 
-REGLAS ESTRICTAS para categoria_tiendanube:
-1. SIEMPRE devolver el path completo con los 4 niveles cuando existen
-2. Formato exacto: "Nivel1 > Nivel2 > Nivel3 > Nivel4"
-3. Copiar el texto EXACTAMENTE de la lista, sin modificar
-4. Si el producto encaja perfectamente en una categoría existente → usarla
-5. Si el nivel3 existe pero no hay nivel4 adecuado → podés sugerir uno nuevo
+⛔ PROHIBIDO ABSOLUTO:
+- Inventar categorías que no estén en esta lista
+- Modificar el texto de una categoría (ni mayúsculas, ni tildes, ni palabras)
+- Devolver paths con menos de 4 niveles cuando el nivel4 existe en la lista
+- Crear nivel1, nivel2 o nivel3 nuevos bajo ninguna circunstancia
 
-CUÁNDO sugerir nivel4 nuevo:
-- El producto no encaja en ningún nivel4 existente del nivel3 correcto
-- El tipo de repuesto es claramente distinto a los nivel4 ya existentes
-- El nombre sugerido sigue el estilo de los existentes (ver referencia abajo)
+✅ OBLIGATORIO:
+- Copiar el path EXACTAMENTE como aparece en la lista
+- Devolver SIEMPRE 4 niveles cuando existen en la lista
+- Si el producto no encaja perfectamente, usar la categoría más cercana
+- Ante la duda, preferir categorías de Calefacción o Agua Sanitaria
 
-ESTILO de nivel4 — seguir este patrón exacto (sustantivo + complemento):
+EJEMPLOS DE ASIGNACIÓN CORRECTA:
+- Diafragma / membrana de calefón → "Repuestos y Accesorios > Calefacción > Calefones > Diafragmas y Membranas"
+- Termocupla / piloto de calefactor → "Repuestos y Accesorios > Calefacción > Calefactores > Termocuplas y Pilotos"
+- Presostato / sensor de caldera → "Repuestos y Accesorios > Calefacción > Calderas > Sensores y Presostatos"
+- Plaqueta / display de caldera → "Repuestos y Accesorios > Calefacción > Calderas > Plaquetas y Electrónica"
+- Resistencia / ánodo de termotanque → "Repuestos y Accesorios > Agua Sanitaria > Termotanques > Resistencias y Ánodos"
+- Capacitor / contactor → "Repuestos y Accesorios > Componentes Eléctricos > Capacitores y Contactores > Capacitores"
+- Filtro deshidratador / chicote → "Repuestos y Accesorios > Refrigeración > Válvulas y Filtros > Filtros Deshidratadores"
+- Termostato de inmersión → "Repuestos y Accesorios > Componentes Eléctricos > Termostatos > Termostatos de Inmersión"
+- Llave / válvula de gas → "Repuestos y Accesorios > Materiales de Instalación > Válvulas de Gas > Llaves y Válvulas Esféricas"
+- Manómetro de gas → "Repuestos y Accesorios > Materiales de Instalación > Manómetros > Manómetros de Gas"
+
+ESTILO de nivel4 para sugerencias nuevas (solo si no existe ningún nivel4 adecuado):
 ${nivel4Contexto}
-
-CÓMO sugerir nivel4 nuevo:
-- Usar el mismo estilo que los existentes del mismo nivel3
-- Ejemplos válidos: "Intercambiadores de Calor", "Motores y Ventiladores", "Juntas y Empaques", "Electrónica de Control"
-- Ejemplos NO válidos: "Fan Inducer Goodman", "Repuesto específico BTG12"
-- NUNCA inventar nivel1, nivel2 ni nivel3 nuevos
 
 Si sugerís nivel4 nuevo:
   "es_categoria_nueva": true,
@@ -162,7 +168,11 @@ export default async function handler(req, res) {
   if (!products || !Array.isArray(products) || products.length === 0)
     return res.status(400).json({ error: 'No se enviaron productos' })
 
-  const SYSTEM_PROMPT = buildSystemPrompt(tnCategories || [], force_nivel4)
+  const tnCats = tnCategories || []
+  console.log('[enrich] tnCategories recibidas:', tnCats.length)
+  console.log('[enrich] Primeras 3:', tnCats.slice(0, 3).map(c => c.nivel4 || c.nivel3))
+
+  const SYSTEM_PROMPT = buildSystemPrompt(tnCats, force_nivel4)
 
   const batch = products.slice(0, 15)
   const userPrompt = 'Productos:\n' + JSON.stringify(
@@ -217,6 +227,51 @@ export default async function handler(req, res) {
       } catch (e) {
         lastError = 'Respuesta no es JSON array valido: ' + content.substring(0, 200)
         continue
+      }
+
+      // ── Validar y corregir categorías devueltas por Groq ─────────────────────
+      if (tnCats.length > 0) {
+        const validPaths = new Set(
+          tnCats.map(c =>
+            [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(' > ').toLowerCase().trim()
+          )
+        )
+        const validPaths3 = new Set(
+          tnCats.map(c =>
+            [c.nivel1, c.nivel2, c.nivel3].filter(Boolean).join(' > ').toLowerCase().trim()
+          )
+        )
+
+        results = results.map(r => {
+          if (!r.categoria_tiendanube) return r
+          const catLower = r.categoria_tiendanube.toLowerCase().trim()
+
+          if (validPaths.has(catLower)) return r
+
+          if (validPaths3.has(catLower)) {
+            return { ...r, es_categoria_incompleta: true }
+          }
+
+          const nombreProducto = (r.nombre_limpio || r.codigo || '').toLowerCase()
+          let bestMatch = null
+          let bestScore = 0
+          tnCats.forEach(cat => {
+            if (!cat.keywords) return
+            const kws = cat.keywords.split(',').map(k => k.trim().toLowerCase())
+            const score = kws.filter(kw => kw && nombreProducto.includes(kw)).length
+            if (score > bestScore) { bestScore = score; bestMatch = cat }
+          })
+
+          if (bestMatch && bestScore > 0) {
+            const correctedPath = [bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3, bestMatch.nivel4]
+              .filter(Boolean).join(' > ')
+            console.log(`[enrich] Corregida: "${r.categoria_tiendanube}" → "${correctedPath}"`)
+            return { ...r, categoria_tiendanube: correctedPath, es_categoria_nueva: false, categoria_corregida: true }
+          }
+
+          console.log(`[enrich] Sin match: "${r.categoria_tiendanube}" — usando fallback`)
+          return { ...r, categoria_tiendanube: 'Repuestos y Accesorios', es_categoria_nueva: false }
+        })
       }
 
       return res.status(200).json({ results })
