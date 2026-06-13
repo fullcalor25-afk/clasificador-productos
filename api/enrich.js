@@ -26,37 +26,55 @@ function buildSystemPrompt(tnCats, force_nivel4 = false) {
     ? '\nATENCIÓN: Para TODOS los productos de esta lista, el path de categoría llega solo hasta nivel3. DEBES agregar un nivel4 específico y coherente con los existentes en ese nivel3. No devolver paths sin nivel4.\n'
     : ''
 
+  const ESTRUCTURA_REFERENCIA = `ESTRUCTURA DE CATEGORÍAS (referencia de estilo para nivel4):
+Calefacción > Calderas: Plaquetas y Electrónica | Hidráulicos | Quemadores y Encendido | Sensores y Presostatos | Válvulas y Gas
+Calefacción > Calefones: Diafragmas y Membranas | Termocuplas y Pilotos | Unidades Magnéticas
+Calefacción > Calefactores: Termocuplas y Pilotos | Válvulas y Gas | Repuestos Generales
+Calefacción > Radiadores: Válvulas y Detentores | Accesorios
+Calefacción > Piso Radiante: Membranas y Tubería
+Calefacción > Salamandras: Conductos Enlozados | Repuestos Generales
+Agua Sanitaria > Termotanques: Resistencias y Ánodos | Termostatos y Válvulas
+Agua Sanitaria > Calefones: Diafragmas y Membranas | Termocuplas y Pilotos | Unidades Magnéticas
+Agua Sanitaria > Filtros de Agua: Cartuchos y Membranas | Vasos y Filtros Completos
+Refrigeración > Válvulas y Filtros: Filtros Deshidratadores | Válvulas Solenoides | Accesorios Refrigeración
+Refrigeración > Gas Refrigerante: R22 / R134 / R410 / R404
+Refrigeración > Compresores y Motores: Motores Forzadores | Comandos y Controles | Capacitores y Contactores
+Materiales Eléctricos > Cables: Cables Calefactor | Cables Encendido
+Materiales Eléctricos > Fichas y Conectores: Fichas y Enchufes | Conectores Específicos
+Materiales Eléctricos > Sensores: Sensores de Llama | Sensores de Temperatura
+Materiales de Instalación > Manómetros: Manómetros de Gas | Manómetros de Refrigeración
+Materiales de Instalación > Válvulas de Gas: Llaves y Válvulas Esféricas | Electroválvulas
+Materiales de Instalación > Válvulas de Agua: Válvulas de Retención | Válvulas de Alivio | Detentores
+Materiales de Instalación > Protección Eléctrica: Interruptores y Térmicas | Guardamotores | Relays de Protección
+Materiales de Instalación > Termostatos Ambiente: (sin nivel4 todavía)`
+
   return `Sos un experto en repuestos HVAC (calefacción, refrigeración, gas, agua sanitaria) para el mercado argentino. Completá los datos de cada producto para una tienda online en Tienda Nube.
 ${forceNivel4Block}
 CATEGORÍAS DISPONIBLES — LISTA COMPLETA Y DEFINITIVA:
 ${catList}
 
-⛔ PROHIBIDO ABSOLUTO:
-- Inventar categorías que no estén en esta lista
-- Modificar el texto de una categoría (ni mayúsculas, ni tildes, ni palabras)
-- Devolver paths con menos de 4 niveles cuando el nivel4 existe en la lista
-- Crear nivel1, nivel2 o nivel3 nuevos bajo ninguna circunstancia
+${ESTRUCTURA_REFERENCIA}
 
-✅ OBLIGATORIO:
-- Copiar el path EXACTAMENTE como aparece en la lista
-- Devolver SIEMPRE 4 niveles cuando existen en la lista
-- Si el producto no encaja perfectamente, usar la categoría más cercana
-- Ante la duda, preferir categorías de Calefacción o Agua Sanitaria
+⛔ REGLAS ABSOLUTAS — NUNCA violar:
+1. NUNCA crear nivel1, nivel2 ni nivel3 nuevos
+2. NUNCA devolver una categoría que no esté en la lista de CATEGORÍAS DISPONIBLES
+3. Si el producto encaja en una categoría existente → usarla EXACTAMENTE
+4. Solo marcar es_categoria_nueva: true si el producto claramente necesita un nivel4 que no existe en su nivel3
 
-EJEMPLOS DE ASIGNACIÓN CORRECTA:
-- Diafragma / membrana de calefón → "Repuestos y Accesorios > Calefacción > Calefones > Diafragmas y Membranas"
-- Termocupla / piloto de calefactor → "Repuestos y Accesorios > Calefacción > Calefactores > Termocuplas y Pilotos"
-- Presostato / sensor de caldera → "Repuestos y Accesorios > Calefacción > Calderas > Sensores y Presostatos"
-- Plaqueta / display de caldera → "Repuestos y Accesorios > Calefacción > Calderas > Plaquetas y Electrónica"
-- Resistencia / ánodo de termotanque → "Repuestos y Accesorios > Agua Sanitaria > Termotanques > Resistencias y Ánodos"
-- Capacitor / contactor → "Repuestos y Accesorios > Componentes Eléctricos > Capacitores y Contactores > Capacitores"
-- Filtro deshidratador / chicote → "Repuestos y Accesorios > Refrigeración > Válvulas y Filtros > Filtros Deshidratadores"
-- Termostato de inmersión → "Repuestos y Accesorios > Componentes Eléctricos > Termostatos > Termostatos de Inmersión"
-- Llave / válvula de gas → "Repuestos y Accesorios > Materiales de Instalación > Válvulas de Gas > Llaves y Válvulas Esféricas"
-- Manómetro de gas → "Repuestos y Accesorios > Materiales de Instalación > Manómetros > Manómetros de Gas"
+✅ CUÁNDO crear nivel4 nuevo (es_categoria_nueva: true):
+- El nivel3 correcto existe pero ningún nivel4 describe bien el producto
+- El nivel4 nuevo es genérico (aplica a varios productos similares)
+- Sigue el mismo estilo que los nivel4 existentes en ese nivel3
+- Máximo 4 palabras en español
+- Ejemplo válido: nivel3 "Calderas" no tiene nivel4 para "motores" → sugerir "Motores y Ventiladores"
 
-ESTILO de nivel4 para sugerencias nuevas (solo si no existe ningún nivel4 adecuado):
-${nivel4Contexto}
+❌ CUÁNDO NO crear nivel4 nuevo:
+- Ya existe un nivel4 que describe bien el producto (aunque no sea perfecto)
+- El nombre sería demasiado específico (solo aplica a 1 producto)
+- Implicaría crear un nivel3 nuevo primero
+- Hay más de 4 palabras en el nombre
+
+EN CASO DE DUDA: usar la categoría existente más cercana.
 
 Si sugerís nivel4 nuevo:
   "es_categoria_nueva": true,
@@ -244,6 +262,34 @@ export default async function handler(req, res) {
 
         results = results.map(r => {
           if (!r.categoria_tiendanube) return r
+
+          // Validar es_categoria_nueva antes de procesar el path
+          if (r.es_categoria_nueva) {
+            const parts = r.categoria_tiendanube.split(' > ').map(p => p.trim())
+            if (parts.length !== 4) {
+              r = { ...r, es_categoria_nueva: false, keywords_sugeridas: null }
+            } else {
+              const nivel3Existe = tnCats.some(c =>
+                c.nivel1?.trim() === parts[0] &&
+                c.nivel2?.trim() === parts[1] &&
+                c.nivel3?.trim() === parts[2]
+              )
+              if (!nivel3Existe) {
+                r = { ...r, es_categoria_nueva: false, keywords_sugeridas: null }
+              } else {
+                const nivel4Existe = tnCats.some(c =>
+                  c.nivel1?.trim() === parts[0] &&
+                  c.nivel2?.trim() === parts[1] &&
+                  c.nivel3?.trim() === parts[2] &&
+                  c.nivel4?.trim().toLowerCase() === parts[3].toLowerCase()
+                )
+                if (nivel4Existe) {
+                  r = { ...r, es_categoria_nueva: false, keywords_sugeridas: null }
+                }
+              }
+            }
+          }
+
           const catLower = r.categoria_tiendanube.toLowerCase().trim()
 
           if (validPaths.has(catLower)) return r

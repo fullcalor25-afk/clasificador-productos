@@ -118,64 +118,57 @@ export default function ExportView({
           processed += batch.length;
           setEnrichProcessed(processed);
           setEnrichStatus(`✓ ${processed}/${total} completados`);
+
+          // ── Auto-crear nivel4 sugeridos en este lote (doble validación) ──────
+          if (loadTnCategories) {
+            const nuevasSugerencias = {};
+            data.results.forEach(r => {
+              if (!r.es_categoria_nueva || !r.categoria_tiendanube) return;
+              const cat = r.categoria_tiendanube.trim();
+              const parts = cat.split(" > ").map(p => p.trim());
+              if (parts.length !== 4) return;
+              if (parts[0] !== "Repuestos y Accesorios") return;
+              const nivel2Existe = tnCategories.some(c => c.nivel2 === parts[1]);
+              if (!nivel2Existe) return;
+              const nivel3Existe = tnCategories.some(c => c.nivel2 === parts[1] && c.nivel3 === parts[2]);
+              if (!nivel3Existe) return;
+              const nivel4Existe = tnCategories.some(c =>
+                c.nivel2 === parts[1] && c.nivel3 === parts[2] &&
+                c.nivel4?.toLowerCase() === parts[3].toLowerCase()
+              );
+              if (nivel4Existe) return;
+              if (parts[3].split(" ").length > 4) return;
+              if (!nuevasSugerencias[cat]) nuevasSugerencias[cat] = { count: 0, keywords: r.keywords_sugeridas || "", parts };
+              nuevasSugerencias[cat].count++;
+            });
+
+            const toCreate = Object.entries(nuevasSugerencias).filter(([, d]) => d.count >= 2);
+            for (const [catPath, catData] of toCreate) {
+              try {
+                await apiFetch("/api/tn-categories", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    nivel1: catData.parts[0],
+                    nivel2: catData.parts[1],
+                    nivel3: catData.parts[2],
+                    nivel4: catData.parts[3],
+                    keywords: catData.keywords || null,
+                  }),
+                });
+                console.log("[runEnrich] Nivel4 creado:", catPath);
+              } catch (e) {
+                console.log("[runEnrich] Error creando nivel4:", catPath, e.message);
+              }
+            }
+            if (toCreate.length > 0) {
+              await loadTnCategories();
+              const nombres = toCreate.map(([cat]) => cat.split(" > ").pop()).join(", ");
+              toast?.success(`✨ Nuevas subcategorías: ${nombres}`);
+            }
+          }
         }
       } catch (e) {
         console.error("Error enriqueciendo lote", i, e);
-      }
-    }
-
-    // ── Auto-create nivel4 sugeridos por la IA (validación estricta) ──────────
-    if (!enrichAbortRef.current && loadTnCategories) {
-      const suggestions = {};
-      allEnrichedResults.forEach(r => {
-        if (!r.es_categoria_nueva || !r.categoria_tiendanube) return;
-        const cat = r.categoria_tiendanube.trim();
-        const parts = cat.split(" > ").map(p => p.trim());
-        // Exactamente 4 partes
-        if (parts.length !== 4) return;
-        const [n1, n2, n3, n4] = parts;
-        // nivel3 debe existir en tnCategories
-        const nivel3Existe = tnCategories.some(c => c.nivel3 === n3 && c.nivel2 === n2 && c.nivel1 === n1);
-        if (!nivel3Existe) return;
-        // nivel4 NO debe existir (case-insensitive)
-        const nivel4Existe = tnCategories.some(c =>
-          c.nivel3 === n3 && c.nivel2 === n2 && c.nivel1 === n1 &&
-          c.nivel4 && c.nivel4.toLowerCase() === n4.toLowerCase()
-        );
-        if (nivel4Existe) return;
-        // máximo 5 palabras en nivel4
-        if (n4.split(/\s+/).length > 5) return;
-        if (!suggestions[cat]) suggestions[cat] = { count: 0, keywords: r.keywords_sugeridas, parts };
-        suggestions[cat].count++;
-      });
-
-      const toCreate = Object.entries(suggestions).filter(([, d]) => d.count >= 2);
-
-      if (toCreate.length > 0) {
-        let created = 0;
-        for (const [catPath, catData] of toCreate) {
-          const { parts } = catData;
-          try {
-            await apiFetch("/api/tn-categories", {
-              method: "POST",
-              body: JSON.stringify({
-                nivel1: parts[0],
-                nivel2: parts[1],
-                nivel3: parts[2],
-                nivel4: parts[3],
-                keywords: catData.keywords || null,
-              }),
-            });
-            created++;
-          } catch (e) {
-            console.warn("[auto-cat] No se pudo crear:", catPath, e.message);
-          }
-        }
-        if (created > 0) {
-          await loadTnCategories();
-          const names = toCreate.slice(0, created).map(([cat]) => cat.split(" > ").pop()).join(", ");
-          toast?.success(`✨ Nuevas subcategorías creadas: ${names}`);
-        }
       }
     }
 
