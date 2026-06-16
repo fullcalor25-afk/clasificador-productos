@@ -165,6 +165,20 @@ export default function Topbar({
                       padding: 4,
                     }}
                   >
+                    {/* Tienda Nube */}
+                    <button
+                      onClick={() => { onExport("TN"); setExportOpen(false); }}
+                      style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: "none", color: C.success, fontSize: 12, textAlign: "left", cursor: "pointer", fontWeight: 700 }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      🛒 Para Tienda Nube
+                    </button>
+                    <div style={{ height: 1, background: C.border, margin: "2px 0" }} />
+                    {/* Análisis interno */}
+                    <div style={{ padding: "3px 10px 1px", fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      📊 Análisis interno
+                    </div>
                     {[
                       { id: "ALL", label: "Exportar Todos" },
                       { id: "REPUESTO", label: "Solo Repuestos" },
@@ -175,21 +189,8 @@ export default function Topbar({
                     ].map(opt => (
                       <button
                         key={opt.id}
-                        onClick={() => {
-                          onExport(opt.id);
-                          setExportOpen(false);
-                        }}
-                        style={{
-                          padding: "6px 10px",
-                          borderRadius: 6,
-                          background: "transparent",
-                          border: "none",
-                          color: C.text,
-                          fontSize: 12,
-                          textAlign: "left",
-                          cursor: "pointer",
-                          fontWeight: 500,
-                        }}
+                        onClick={() => { onExport(opt.id); setExportOpen(false); }}
+                        style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: "none", color: C.text, fontSize: 12, textAlign: "left", cursor: "pointer", fontWeight: 500 }}
                         onMouseEnter={e => e.currentTarget.style.background = C.surface2}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                       >

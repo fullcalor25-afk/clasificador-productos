@@ -27,8 +27,7 @@ function buildSystemPrompt(tnCats, force_nivel4 = false) {
     : ''
 
   const ESTRUCTURA_REFERENCIA = `ESTRUCTURA DE CATEGORÍAS (referencia de estilo para nivel4):
-Calefacción > Calderas: Plaquetas y Electrónica | Hidráulicos | Quemadores y Encendido | Sensores y Presostatos | Válvulas y Gas
-Calefacción > Calefones: Diafragmas y Membranas | Termocuplas y Pilotos | Unidades Magnéticas
+Calefacción > Calderas: Plaquetas y Electrónica | Hidráulicos | Quemadores y Encendido | Sensores y Presostatos | Válvulas y Gas | Manómetros
 Calefacción > Calefactores: Termocuplas y Pilotos | Válvulas y Gas | Repuestos Generales
 Calefacción > Radiadores: Válvulas y Detentores | Accesorios
 Calefacción > Piso Radiante: Membranas y Tubería
@@ -36,13 +35,11 @@ Calefacción > Salamandras: Conductos Enlozados | Repuestos Generales
 Agua Sanitaria > Termotanques: Resistencias y Ánodos | Termostatos y Válvulas
 Agua Sanitaria > Calefones: Diafragmas y Membranas | Termocuplas y Pilotos | Unidades Magnéticas
 Agua Sanitaria > Filtros de Agua: Cartuchos y Membranas | Vasos y Filtros Completos
-Refrigeración > Válvulas y Filtros: Filtros Deshidratadores | Válvulas Solenoides | Accesorios Refrigeración
+Refrigeración > Válvulas y Filtros: Filtros Deshidratadores | Válvulas Solenoides | Accesorios Refrigeración | Manómetros
 Refrigeración > Gas Refrigerante: R22 / R134 / R410 / R404
 Refrigeración > Compresores y Motores: Motores Forzadores | Comandos y Controles | Capacitores y Contactores
 Materiales Eléctricos > Cables: Cables Calefactor | Cables Encendido
 Materiales Eléctricos > Fichas y Conectores: Fichas y Enchufes | Conectores Específicos
-Materiales Eléctricos > Sensores: Sensores de Llama | Sensores de Temperatura
-Materiales de Instalación > Manómetros: Manómetros de Gas | Manómetros de Refrigeración
 Materiales de Instalación > Válvulas de Gas: Llaves y Válvulas Esféricas | Electroválvulas
 Materiales de Instalación > Válvulas de Agua: Válvulas de Retención | Válvulas de Alivio | Detentores
 Materiales de Instalación > Protección Eléctrica: Interruptores y Térmicas | Guardamotores | Relays de Protección
@@ -50,6 +47,39 @@ Materiales de Instalación > Termostatos Ambiente: (sin nivel4 todavía)`
 
   return `Sos un experto en repuestos HVAC (calefacción, refrigeración, gas, agua sanitaria) para el mercado argentino. Completá los datos de cada producto para una tienda online en Tienda Nube.
 ${forceNivel4Block}
+CÓMO ANALIZAR CADA PRODUCTO para asignar categoría:
+
+1. NOMBRE DEL PRODUCTO — es la fuente principal:
+   - Buscar el tipo de repuesto: diafragma, electrodo, termocupla, etc.
+   - Buscar la marca del equipo: Orbis, Longvie, Baxi, Vaillant, Ferroli, Junkers, Rheem, Domec, Coppens, Eskabe, Target, Peisa, etc.
+   - Buscar códigos de fabricante: BTG12, NTC10K, SIT820, etc.
+   - Buscar el equipo compatible: "PARA CALDERA", "PARA CALEFON", etc.
+
+2. RUBRO y SUB RUBRO — clasificación del sistema de gestión:
+   - "CALDERAS" / "ACC. CALDERAS" → Calefacción > Calderas
+   - "REP. CALEFACCION" / "DIAFRAGMA" → Agua Sanitaria > Calefones
+   - "CLIMATIZACION" / "TERMOSTATO" → Materiales de Instalación > Termostatos Ambiente
+   - "REFRIGERACION Y AIRE ACONDICIONADO" → Refrigeración
+   - "GAS" / "VALVULAS Y LLAVES" → Materiales de Instalación > Válvulas de Gas
+   - "FILTROS DE AGUA" → Agua Sanitaria > Filtros de Agua
+   - "MATERIALES ELECTRICOS" → Materiales Eléctricos
+
+3. PROVEEDOR — da pistas de la marca y tipo:
+   - Proveedores de calderas: BAXI, VAILLANT, FERROLI, JUNKERS, PEISA
+   - Proveedores de calefones: LONGVIE, ORBIS, DOMEC, RHEEM
+   - Proveedores de refrigeración: NECTON, CARRIER, MOLISE
+   - Proveedores eléctricos: BAW, SIEMENS, SCHNEIDER, THOMELEC
+
+4. CÓDIGOS ESPECÍFICOS que identifican el producto:
+   - BTG12 → electrodo de encendido (Calderas > Quemadores y Encendido)
+   - SIT / HONEYWELL → válvulas de gas o presostatos
+   - NTC / PTC / PT100 → sensores de temperatura (Calderas > Sensores y Presostatos)
+   - UM + número → Unidad Magnética para calefón (Agua Sanitaria > Calefones)
+   - DKG / LGB → control de llama (Calderas > Sensores y Presostatos)
+   - MUF / FAN INDUCER → motor forzador (Refrigeración > Compresores y Motores)
+
+Usá TODA esta información combinada para elegir la categoría más específica y correcta de la lista disponible.
+
 CATEGORÍAS DISPONIBLES — LISTA COMPLETA Y DEFINITIVA:
 ${catList}
 
@@ -195,11 +225,12 @@ export default async function handler(req, res) {
   const batch = products.slice(0, 15)
   const userPrompt = 'Productos:\n' + JSON.stringify(
     batch.map(p => ({
-      codigo:    p.CODIGO    || '',
-      producto:  p.PRODUCTO  || '',
-      rubro:     p.RUBRO     || '',
-      sub_rubro: p['SUB RUBRO'] || '',
-      proveedor: p.PROVEEDOR || '',
+      codigo:        p.CODIGO        || p.codigo        || '',
+      producto:      p.PRODUCTO      || p.producto      || '',
+      rubro:         p.RUBRO         || p.rubro         || '',
+      sub_rubro:     p['SUB RUBRO']  || p.sub_rubro     || '',
+      proveedor:     p.PROVEEDOR     || p.proveedor     || '',
+      clasificacion: p._class?.classification || p.clasificacion || '',
     })),
     null, 2
   )

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { C, CLS } from "./constants";
-import { exportCSV, getProductPrice, apiFetch } from "./utils";
+import { exportCSV, exportTiendaNubeCSV, getProductPrice, apiFetch } from "./utils";
 
 // Components
 import Sidebar from "./components/Sidebar";
@@ -521,7 +521,13 @@ export default function ProductClassifier() {
             setSaveModalName(`Análisis ${dd}/${mm}/${yyyy}`);
             setSaveModalOpen(true);
           }}
-          onExport={(filterType) => exportCSV(filterType === "ALL" ? classified : classified.filter(p => (p._manualClass || p._class.classification) === filterType), CLS)}
+          onExport={(filterType) => {
+            if (filterType === "TN") {
+              exportTiendaNubeCSV(classified, tnCategories);
+            } else {
+              exportCSV(filterType === "ALL" ? classified : classified.filter(p => (p._manualClass || p._class.classification) === filterType), CLS);
+            }
+          }}
           onReset={handleResetSession}
           historyDetailName={historyDetail?.nombre}
           selectedCount={tableSelectedCount}
