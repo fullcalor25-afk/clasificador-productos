@@ -4,4 +4,4 @@ build/
 .vite/
 .env
 .env.local
-.netlify/
+.vercel/

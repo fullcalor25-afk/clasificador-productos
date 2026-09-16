@@ -51,12 +51,12 @@ clasificador-productos/
 ├── AGENTS.md
 ├── src/
 │   ├── main.jsx
-│   └── App.jsx            ← Componente principal con toda la lógica
+│   ├── App.jsx             ← Componente principal (estado global, vistas)
+│   └── utils.js            ← classifyProduct() y helpers de export/CSV
 ├── api/                   ← Vercel Functions (ESM)
 │   ├── classify.js        ← Clasificación IA con Groq
 │   ├── corrections.js     ← CRUD correcciones aprendidas
 │   ├── history.js         ← CRUD historial de análisis
-│   ├── categories.js      ← CRUD categorías internas (deprecated, no usar)
 │   ├── enrich.js          ← Enriquecimiento TN con Groq
 │   ├── tn-categories.js   ← CRUD categorías Tienda Nube
 │   ├── tn-corrections.js  ← CRUD correcciones de categoría TN
@@ -165,8 +165,8 @@ prop3_nombre, prop3_valor
 - OTRO — no encaja claramente
 
 ### NUNCA modificar:
-- La función classifyProduct() en App.jsx
-- Los arrays REPUESTO_KEYWORDS, ACCESORIO_KEYWORDS, PRODUCTO_COMPLETO_KEYWORDS
+- La función classifyProduct() en src/utils.js
+- El array DEFAULT_RULES en src/constants.js (reglas por defecto del motor de scoring)
 - El orden de prioridad correcciones > IA > reglas
 
 ---
@@ -251,7 +251,6 @@ Tags;"Título para SEO";"Descripción para SEO";Marca;"Producto Físico";
 | api/tn-categories.js | GET, POST, PUT, DELETE | Categorías Tienda Nube |
 | api/tn-corrections.js | GET, POST, DELETE | Correcciones de categoría TN |
 | api/rules.js | GET, POST, DELETE | Reglas dinámicas de clasificación |
-| api/categories.js | — | DEPRECATED, no usar |
 
 ### Patrón estándar de cada función:
 ```js
