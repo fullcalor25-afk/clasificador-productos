@@ -171,6 +171,8 @@ export default async function handler(req, res) {
           console.log(`[classify] ${lastError}, esperando ${backoff}ms antes de reintentar (intento ${attemptCounts[m]}/${MAX_ATTEMPTS_PER_MODEL})`)
           await wait(backoff)
           m--
+        } else {
+          console.log(`[classify] ${lastError} (sin mas reintentos, intento ${attemptCounts[m]}/${MAX_ATTEMPTS_PER_MODEL})`)
         }
         continue
       }
@@ -178,19 +180,32 @@ export default async function handler(req, res) {
       if (!response.ok) {
         const errTxt = await response.text()
         lastError = 'Error ' + response.status + ' en ' + model + ': ' + errTxt.substring(0, 200)
+        console.log('[classify]', lastError)
         continue
       }
 
       const data = await response.json()
       let text = ''
-      try { text = data.choices[0].message.content } catch (e) { continue }
-      if (!text) { lastError = 'Respuesta vacia de ' + model; continue }
+      try { text = data.choices[0].message.content } catch (e) {
+        lastError = 'Sin choices en respuesta de ' + model
+        console.log('[classify]', lastError, JSON.stringify(data).substring(0, 300))
+        continue
+      }
+      if (!text) { lastError = 'Respuesta vacia de ' + model; console.log('[classify]', lastError); continue }
 
       let parsed
-      try { parsed = JSON.parse(text) } catch (e) { lastError = 'Respuesta no parseable de ' + model; continue }
+      try { parsed = JSON.parse(text) } catch (e) {
+        lastError = 'Respuesta no parseable de ' + model
+        console.log('[classify]', lastError, text.substring(0, 300))
+        continue
+      }
 
       const results = parsed.results
-      if (!results || !Array.isArray(results)) { lastError = 'Formato de resultados incorrecto en ' + model; continue }
+      if (!results || !Array.isArray(results)) {
+        lastError = 'Formato de resultados incorrecto en ' + model
+        console.log('[classify]', lastError, JSON.stringify(parsed).substring(0, 300))
+        continue
+      }
 
       console.log('Exito con', model, '-', results.length, 'productos clasificados')
 
@@ -228,6 +243,7 @@ export default async function handler(req, res) {
     }
   }
 
+  console.log('[classify] Todos los modelos fallaron. Ultimo error:', lastError)
   return res.status(503).json({
     error: 'Todos los modelos de Groq fallaron. Espera unos minutos. Ultimo error: ' + lastError,
   })
