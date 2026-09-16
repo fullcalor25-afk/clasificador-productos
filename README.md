@@ -14,7 +14,7 @@ datos de e-commerce y los exporta en formato CSV para importar directamente a
 | Frontend | React 18 + Vite |
 | Funciones serverless | Vercel Functions (Node.js ESM) |
 | Base de datos | Supabase (PostgreSQL vía REST API) |
-| IA clasificación / enriquecimiento | Groq API (`llama-3.3-70b-versatile`, con fallback a `llama-3.1-8b-instant`) |
+| IA clasificación / enriquecimiento | Groq API (`openai/gpt-oss-120b`, con fallback a `openai/gpt-oss-20b`) |
 | Deploy | Vercel (auto-deploy desde GitHub) |
 
 ---

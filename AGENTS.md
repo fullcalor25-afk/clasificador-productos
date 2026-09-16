@@ -20,7 +20,7 @@ y con ficha completa lista para importar.
 | Frontend | React 18 + Vite |
 | Funciones serverless | Vercel Functions (Node.js ESM) |
 | Base de datos | Supabase (PostgreSQL via REST API) |
-| IA clasificación | Groq API (llama-3.3-70b-versatile / llama-3.1-8b-instant) |
+| IA clasificación | Groq API (openai/gpt-oss-120b / openai/gpt-oss-20b) |
 | IA enriquecimiento | Groq API (mismo modelo) |
 | Deploy | Vercel (auto-deploy desde GitHub) |
 | Repo | GitHub (fullcalor25-afk/clasificador-productos) |
