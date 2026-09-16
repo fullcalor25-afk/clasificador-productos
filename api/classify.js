@@ -80,10 +80,8 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  console.log('GROQ_API_KEY exists:', !!process.env.GROQ_API_KEY)
-  console.log('GROQ_API_KEY prefix:', process.env.GROQ_API_KEY?.substring(0, 8))
-
-  const apiKey = process.env.GROQ_API_KEY
+  const userKey = req.headers['x-groq-key']
+  const apiKey = (typeof userKey === 'string' && userKey.trim()) ? userKey.trim() : process.env.GROQ_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'GROQ_API_KEY no configurada en Vercel.' })
 
   const supabaseUrl = process.env.SUPABASE_URL

@@ -117,13 +117,20 @@ export default function useHistory() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nombre, productos }),
       });
-      if (!res.ok) throw new Error("Error en servidor al guardar");
-      
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 207) {
+        // Guardado parcial: el análisis se creó pero no todos los productos se insertaron
+        await loadHistory();
+        return { success: true, warning: data.warning || "El análisis se guardó parcialmente." };
+      }
+      if (!res.ok) throw new Error(data.error || `Error ${res.status} al guardar`);
+
       await loadHistory();
       return { success: true };
     } catch (e) {
       console.error("Error guardando análisis", e);
-      return { success: false, error: "No se pudo guardar el análisis." };
+      return { success: false, error: e.message || "No se pudo guardar el análisis." };
     } finally {
       setLoading(false);
     }

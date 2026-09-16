@@ -38,6 +38,17 @@ SUPABASE_KEY        anon public key de Supabase
 IMPORTANTE: Las funciones serverless usan SUPABASE_URL y SUPABASE_KEY
 (sin prefijo VITE_). El prefijo VITE_ solo aplica al frontend de Vite.
 
+### Key personal de Groq (opcional)
+
+Desde Configuración, un usuario puede guardar su propia Groq API key en
+`localStorage("clasificador_groq_key")`. El frontend la manda en el header
+`x-groq-key` en cada llamada a `/api/classify` y `/api/enrich`; ambas
+funciones usan esa key si viene presente, y si no, caen a la
+`GROQ_API_KEY` del servidor. Esto permite repartir la carga entre varias
+cuotas de Groq en vez de que todos los usuarios compartan una sola. La key
+viaja solo por header HTTPS server-side, nunca se loguea ni se devuelve al
+cliente.
+
 ---
 
 ## Estructura de archivos
@@ -142,11 +153,22 @@ category_id, subcategory_id, tipo,
 slug, nombre_limpio, marca,
 descripcion_html, tags, seo_titulo, seo_descripcion,
 peso_kg, alto_cm, ancho_cm, profundidad_cm,
-categoria_tiendanube,
+categoria_tiendanube, tn_manual,
 prop1_nombre, prop1_valor,
 prop2_nombre, prop2_valor,
 prop3_nombre, prop3_valor
 ```
+
+### Row Level Security (RLS)
+
+`classification_rules`, `tiendanube_categories`, `tn_corrections`,
+`corrections`, `analyses` y `analysis_products` tienen RLS habilitado con
+una política pública permisiva (`FOR ALL USING (true) WITH CHECK (true)`) —
+ver `supabase_rules.sql`, `supabase_tn_categories.sql`,
+`supabase_tn_corrections.sql` y `supabase_rls_fix.sql`. La seguridad real
+se aplica a nivel de las Vercel Functions (`api/*.js`), no de RLS; estas
+políticas solo evitan que Supabase bloquee escrituras de la anon key por
+defecto. Si se crea una tabla nueva, replicar el mismo patrón.
 
 ---
 
