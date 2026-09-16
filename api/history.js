@@ -98,6 +98,7 @@ export default async function handler(req, res) {
       ancho_cm:         parseFloat(p.ancho_cm || p._enriched?.ancho_cm) || null,
       profundidad_cm:   parseFloat(p.profundidad_cm || p._enriched?.profundidad_cm) || null,
       categoria_tiendanube: p.categoria_tiendanube || p._enriched?.categoria_tiendanube || null,
+      tn_manual:        p.tn_manual !== undefined ? !!p.tn_manual : false,
     }))
 
     const stats = { total: productos.length, repuestos: 0, accesorios: 0, completos: 0, servicios: 0, otros: 0, aprendidos: 0 }
@@ -121,6 +122,8 @@ export default async function handler(req, res) {
 
     const analysisId = anaData[0].id
     const BATCH = 100
+    const batchErrors = []
+    let insertedCount = 0
     for (let i = 0; i < productos.length; i += BATCH) {
       const batch = productos.slice(i, i + BATCH).map(p => ({ ...p, analysis_id: analysisId }))
       const bRes  = await fetch(SUPABASE_URL + '/rest/v1/analysis_products', {
@@ -130,9 +133,35 @@ export default async function handler(req, res) {
       })
       if (!bRes.ok) {
         const err = await bRes.json().catch(() => ({}))
-        console.error('[history] Error insertando lote', i, JSON.stringify(err).substring(0, 200))
+        const errMsg = err.message || JSON.stringify(err).substring(0, 300)
+        console.error('[history] Error insertando lote', i, errMsg)
+        batchErrors.push({ offset: i, count: batch.length, status: bRes.status, error: errMsg })
+      } else {
+        insertedCount += batch.length
       }
     }
+
+    if (batchErrors.length > 0) {
+      if (insertedCount === 0) {
+        // No se guardó ningún producto: no dejar un análisis fantasma sin datos
+        await fetch(SUPABASE_URL + '/rest/v1/analyses?id=eq.' + analysisId, {
+          method: 'DELETE',
+          headers: { ...h, Prefer: 'return=minimal' },
+        }).catch(() => {})
+        return res.status(502).json({
+          error: 'No se pudo guardar ningún producto del análisis.',
+          details: batchErrors,
+        })
+      }
+      return res.status(207).json({
+        id: analysisId,
+        warning: `Se guardaron ${insertedCount} de ${productos.length} productos. Algunos lotes fallaron.`,
+        inserted: insertedCount,
+        total: productos.length,
+        details: batchErrors,
+      })
+    }
+
     return res.status(200).json({ id: analysisId })
   }
 

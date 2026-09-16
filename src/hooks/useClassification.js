@@ -17,9 +17,9 @@ export default function useClassification() {
       const res = await fetchWithTimeout("/api/rules");
       if (!res.ok) throw new Error("Rules load failed");
       const data = await res.json();
-      if (Array.isArray(data)) {
-        setRules(data);
-      }
+      // Si la tabla existe pero está vacía, no dejar el clasificador sin reglas:
+      // usar los defaults igual que si la tabla no existiera o el fetch fallara.
+      setRules(Array.isArray(data) && data.length > 0 ? data : DEFAULT_RULES);
     } catch (e) {
       console.error("Error loading rules, using defaults", e);
       // Use defaults if fetch fails or table doesn't exist yet

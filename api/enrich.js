@@ -1,7 +1,11 @@
 const MODELS = [
-  'llama-3.3-70b-versatile',
-  'llama-3.1-8b-instant',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
 ]
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 
 function buildSystemPrompt(tnCats, force_nivel4 = false) {
   const catList = tnCats && tnCats.length > 0
@@ -209,7 +213,8 @@ export default async function handler(req, res) {
     console.log('[enrich] POST', count, 'products')
   }
 
-  const apiKey = process.env.GROQ_API_KEY
+  const userKey = req.headers['x-groq-key']
+  const apiKey = (typeof userKey === 'string' && userKey.trim()) ? userKey.trim() : process.env.GROQ_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'GROQ_API_KEY no configurada' })
 
   const { products, tnCategories, force_nivel4 = false } = req.body || {}
@@ -236,10 +241,13 @@ export default async function handler(req, res) {
   )
 
   let lastError = 'Error desconocido'
+  const attemptCounts = {}
+  const MAX_ATTEMPTS_PER_MODEL = 2
 
   for (let m = 0; m < MODELS.length; m++) {
     const model = MODELS[m]
-    console.log('Intentando modelo Groq:', model)
+    attemptCounts[m] = (attemptCounts[m] || 0) + 1
+    console.log('Intentando modelo Groq:', model, '- intento', attemptCounts[m])
     try {
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
@@ -262,7 +270,15 @@ export default async function handler(req, res) {
 
       if (!response.ok) {
         lastError = (data.error && data.error.message) ? data.error.message : JSON.stringify(data)
-        if (response.status === 429 || response.status === 503) continue
+        if (response.status === 429 || response.status === 503) {
+          if (attemptCounts[m] < MAX_ATTEMPTS_PER_MODEL) {
+            const backoff = 6000
+            console.log(`[enrich] Rate limit en ${model}, esperando ${backoff}ms antes de reintentar (intento ${attemptCounts[m]}/${MAX_ATTEMPTS_PER_MODEL})`)
+            await wait(backoff)
+            m--
+          }
+          continue
+        }
         break
       }
 

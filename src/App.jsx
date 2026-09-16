@@ -426,8 +426,16 @@ export default function ProductClassifier() {
   // ─── Groq AI trigger ────────────────────────────────────────────────────
   const handleRunAI = async () => {
     const apiKeyOverride = localStorage.getItem("clasificador_groq_key");
-    
-    await runAI(classified, apiKeyOverride, (batchResults) => {
+
+    // No reprocesar productos con corrección aprendida (prioridad fija, IA no los toca)
+    // ni productos que ya pasaron por IA en esta sesión — evita gastar cuota de Groq de más.
+    const pendingProducts = classified.filter(p => p._source !== "APRENDIDO" && !p._aiClass);
+    if (pendingProducts.length === 0) {
+      toast.info("Todos los productos ya fueron procesados por IA o tienen corrección aprendida.");
+      return;
+    }
+
+    await runAI(pendingProducts, apiKeyOverride, (batchResults) => {
       // Stream results in live to App state as they resolve
       setClassified(prev => {
         const copy = [...prev];
@@ -486,9 +494,13 @@ export default function ProductClassifier() {
     setSavingAnalysis(false);
     if (res.success) {
       setSaveModalOpen(false);
-      toast.success("Análisis guardado con éxito.");
+      if (res.warning) {
+        toast.warning(res.warning);
+      } else {
+        toast.success("Análisis guardado con éxito.");
+      }
     } else {
-      toast.error("No se pudo guardar el análisis. Intentá de nuevo.");
+      toast.error(res.error || "No se pudo guardar el análisis. Intentá de nuevo.");
     }
   };
 

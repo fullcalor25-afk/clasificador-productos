@@ -2,6 +2,48 @@ import React, { useState, useMemo, useRef } from "react";
 import { C, CLS } from "../constants";
 import { getProductPrice, slugify, getCategoriaTN, buildCategoriaTN, exportTiendaNubeCSV, fetchWithTimeout, apiFetch } from "../utils";
 
+const GROQ_KEY_STORAGE = "clasificador_groq_key";
+
+// Enriquece un lote vía /api/enrich con reintento y backoff creciente en 429/503
+// (mismo patrón que useClassification.js:runAI, adaptado a un solo lote por llamada).
+async function enrichBatchWithRetry(body, { maxAttempts = 4, baseDelay = 8000 } = {}) {
+  const groqKeyOverride = localStorage.getItem(GROQ_KEY_STORAGE);
+  const headers = { "Content-Type": "application/json" };
+  if (groqKeyOverride) headers["x-groq-key"] = groqKeyOverride;
+
+  let lastError = "Error desconocido enriqueciendo lote";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetchWithTimeout("/api/enrich", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      if (res.status === 429 || res.status === 503) {
+        lastError = `Límite de Groq excedido (HTTP ${res.status})`;
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, baseDelay * attempt));
+          continue;
+        }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        lastError = errData.error || `Error ${res.status}`;
+        break;
+      }
+    } catch (e) {
+      lastError = e.message;
+      if (attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, baseDelay));
+        continue;
+      }
+    }
+  }
+  throw new Error(lastError);
+}
+
 export default function ExportView({
   classifiedProducts,
   tnCategories = [],
@@ -85,31 +127,26 @@ export default function ExportView({
 
     const batchSize = 15;
     const total = selectedProducts.length;
+    const totalBatches = Math.ceil(total / batchSize);
     let processed = 0;
-    const allEnrichedResults = []; // accumulate across all batches for category detection
+    let failedBatches = 0;
 
-    for (let i = 0; i < Math.ceil(total / batchSize); i++) {
+    for (let i = 0; i < totalBatches; i++) {
       if (enrichAbortRef.current) {
         setEnrichStatus("Cancelado por el usuario.");
         break;
       }
 
       const batch = selectedProducts.slice(i * batchSize, (i + 1) * batchSize);
-      setEnrichStatus(`Procesando lote ${i + 1} de ${Math.ceil(total / batchSize)}...`);
+      setEnrichStatus(`Procesando lote ${i + 1} de ${totalBatches}...`);
 
-      if (i > 0) await new Promise(r => setTimeout(r, 3000));
+      if (i > 0) await new Promise(r => setTimeout(r, 6000));
 
       try {
-        const res = await fetchWithTimeout("/api/enrich", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ products: batch, tnCategories }),
-        });
-        const data = await res.json();
+        const data = await enrichBatchWithRetry({ products: batch, tnCategories });
 
-        if (res.ok && data.results) {
+        if (data.results) {
           data.results.forEach(result => {
-            allEnrichedResults.push(result);
             const originalProduct = classifiedProducts.find(p => p.CODIGO === result.codigo);
             if (originalProduct && updateProductEnriched) {
               updateProductEnriched(originalProduct._id, result);
@@ -168,7 +205,9 @@ export default function ExportView({
           }
         }
       } catch (e) {
+        failedBatches++;
         console.error("Error enriqueciendo lote", i, e);
+        toast?.error?.(`⚠️ Lote ${i + 1}/${totalBatches} falló: ${e.message}`);
       }
     }
 
@@ -183,7 +222,11 @@ export default function ExportView({
 
     setEnrichLoading(false);
     if (!enrichAbortRef.current) {
-      setEnrichStatus(`✅ Enriquecimiento finalizado con éxito.`);
+      setEnrichStatus(
+        failedBatches > 0
+          ? `⚠️ Enriquecimiento finalizado con ${failedBatches} de ${totalBatches} lote(s) fallido(s).`
+          : `✅ Enriquecimiento finalizado con éxito.`
+      );
       setStep(3);
     }
   };
@@ -205,17 +248,14 @@ export default function ExportView({
     setNivel4Loading(true);
     toast?.info?.(`Completando nivel4 para ${sinNivel4.length} productos...`);
     const batchSize = 15;
-    for (let i = 0; i < Math.ceil(sinNivel4.length / batchSize); i++) {
+    const totalBatches = Math.ceil(sinNivel4.length / batchSize);
+    let failedBatches = 0;
+    for (let i = 0; i < totalBatches; i++) {
       const batch = sinNivel4.slice(i * batchSize, (i + 1) * batchSize);
-      if (i > 0) await new Promise(r => setTimeout(r, 3000));
+      if (i > 0) await new Promise(r => setTimeout(r, 6000));
       try {
-        const res = await fetchWithTimeout("/api/enrich", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ products: batch, tnCategories, force_nivel4: true }),
-        });
-        const data = await res.json();
-        if (res.ok && data.results) {
+        const data = await enrichBatchWithRetry({ products: batch, tnCategories, force_nivel4: true });
+        if (data.results) {
           data.results.forEach(result => {
             if (!result.categoria_tiendanube) return;
             const parts = result.categoria_tiendanube.split(" > ").filter(Boolean);
@@ -228,12 +268,17 @@ export default function ExportView({
           });
         }
       } catch (e) {
+        failedBatches++;
         console.error("Error completando nivel4 lote", i, e);
       }
     }
     setSinNivel4([]);
     setNivel4Loading(false);
-    toast?.success?.("✅ nivel4 completado en todos los productos.");
+    if (failedBatches > 0) {
+      toast?.error?.(`⚠️ ${failedBatches} de ${totalBatches} lote(s) no se pudieron completar.`);
+    } else {
+      toast?.success?.("✅ nivel4 completado en todos los productos.");
+    }
   };
 
   const handleDownloadClick = () => {
