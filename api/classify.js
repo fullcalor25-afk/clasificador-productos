@@ -2,6 +2,10 @@ import { createClient } from '@supabase/supabase-js'
 
 const MODELS = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
@@ -134,10 +138,13 @@ export default async function handler(req, res) {
   const userPrompt   = buildUserPrompt(products)
   const systemPrompt = getSystemPrompt(recentCorrections, tnCategories)
   let lastError = 'Error desconocido'
+  const attemptCounts = {}
+  const MAX_ATTEMPTS_PER_MODEL = 2
 
   for (let m = 0; m < MODELS.length; m++) {
     const model = MODELS[m]
-    console.log('Intentando modelo Groq:', model)
+    attemptCounts[m] = (attemptCounts[m] || 0) + 1
+    console.log('Intentando modelo Groq:', model, '- intento', attemptCounts[m])
 
     try {
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -157,8 +164,16 @@ export default async function handler(req, res) {
         }),
       })
 
-      if (response.status === 429) { lastError = 'Rate limit en ' + model; continue }
-      if (response.status === 503 || response.status === 500) { lastError = 'Modelo ' + model + ' sobrecargado'; continue }
+      if (response.status === 429 || response.status === 503 || response.status === 500) {
+        lastError = (response.status === 429 ? 'Rate limit en ' : 'Modelo sobrecargado en ') + model
+        if (attemptCounts[m] < MAX_ATTEMPTS_PER_MODEL) {
+          const backoff = 6000
+          console.log(`[classify] ${lastError}, esperando ${backoff}ms antes de reintentar (intento ${attemptCounts[m]}/${MAX_ATTEMPTS_PER_MODEL})`)
+          await wait(backoff)
+          m--
+        }
+        continue
+      }
       if (response.status === 401) return res.status(401).json({ error: 'API Key de Groq invalida. Revisa tu GROQ_API_KEY.' })
       if (!response.ok) {
         const errTxt = await response.text()

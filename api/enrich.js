@@ -242,7 +242,7 @@ export default async function handler(req, res) {
 
   let lastError = 'Error desconocido'
   const attemptCounts = {}
-  const MAX_ATTEMPTS_PER_MODEL = 3
+  const MAX_ATTEMPTS_PER_MODEL = 2
 
   for (let m = 0; m < MODELS.length; m++) {
     const model = MODELS[m]
@@ -272,7 +272,7 @@ export default async function handler(req, res) {
         lastError = (data.error && data.error.message) ? data.error.message : JSON.stringify(data)
         if (response.status === 429 || response.status === 503) {
           if (attemptCounts[m] < MAX_ATTEMPTS_PER_MODEL) {
-            const backoff = 8000 * attemptCounts[m]
+            const backoff = 6000
             console.log(`[enrich] Rate limit en ${model}, esperando ${backoff}ms antes de reintentar (intento ${attemptCounts[m]}/${MAX_ATTEMPTS_PER_MODEL})`)
             await wait(backoff)
             m--
