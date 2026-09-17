@@ -67,16 +67,31 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'El array bulk está vacío' })
 
       const now = new Date().toISOString()
+      const enrichedFields = [
+        'nombre_limpio', 'marca',
+        'prop1_nombre', 'prop1_valor',
+        'prop2_nombre', 'prop2_valor',
+        'prop3_nombre', 'prop3_valor',
+        'peso_kg', 'alto_cm', 'ancho_cm', 'profundidad_cm',
+        'categoria_tiendanube',
+      ]
       const payloads = rows
         .filter(r => r.codigo && r.clasificacion_corregida)
-        .map(r => ({
-          codigo:                  r.codigo,
-          producto:                r.producto || '',
-          rubro:                   r.rubro || '',
-          sub_rubro:               r.sub_rubro || '',
-          clasificacion_corregida: r.clasificacion_corregida,
-          updated_at:              now,
-        }))
+        .map(r => {
+          const payload = {
+            codigo:                  r.codigo,
+            producto:                r.producto || '',
+            rubro:                   r.rubro || '',
+            sub_rubro:               r.sub_rubro || '',
+            clasificacion_corregida: r.clasificacion_corregida,
+            updated_at:              now,
+          }
+          enrichedFields.forEach(f => {
+            const v = r[f]
+            if (v !== null && v !== undefined && v !== '') payload[f] = v
+          })
+          return payload
+        })
 
       if (payloads.length === 0)
         return res.status(400).json({ error: 'Ninguna fila válida encontrada' })
