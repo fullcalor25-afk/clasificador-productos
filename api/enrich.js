@@ -57,7 +57,7 @@ CÓMO ANALIZAR CADA PRODUCTO para asignar categoría:
 
 1. NOMBRE DEL PRODUCTO — es la fuente principal:
    - Buscar el tipo de repuesto: diafragma, electrodo, termocupla, etc.
-   - Buscar la marca del equipo: Orbis, Longvie, Baxi, Vaillant, Ferroli, Junkers, Rheem, Domec, Coppens, Eskabe, Target, Peisa, Tromen, Ñuke, Bosca, Brago, Grundfos, Pluvius, etc.
+   - Buscar la marca del equipo: Orbis, Longvie, Baxi, Vaillant, Ferroli, Junkers, Rheem, Domec, Coppens, Eskabe, Target, Peisa, Tromen, Ñuke, Bosca, Brago, Grundfos, Pluvius, Caldaia, etc.
    - Buscar códigos de fabricante: BTG12, NTC10K, SIT820, etc.
    - Buscar el equipo compatible: "PARA CALDERA", "PARA CALEFON", etc.
 
@@ -77,6 +77,7 @@ CÓMO ANALIZAR CADA PRODUCTO para asignar categoría:
    - Proveedores eléctricos: BAW, SIEMENS, SCHNEIDER, THOMELEC
    - Proveedores de pellet/leña: TROMEN, ÑUKE, BOSCA, BRAGO
    - Proveedores de bombas/presurizadoras: GRUNDFOS, PLUVIUS, ROWA
+   - Proveedores de calefactores de aire forzado (furnace, NO calderas): GOODMAN, WHITE-RODGERS, CARRIER, LENNOX, TRANE
 
 4. CÓDIGOS ESPECÍFICOS que identifican el producto:
    - BTG12 → electrodo de encendido (Calderas > Quemadores y Encendido)
@@ -85,6 +86,12 @@ CÓMO ANALIZAR CADA PRODUCTO para asignar categoría:
    - UM + número → Unidad Magnética para calefón (Agua Sanitaria > Calefones)
    - DKG / LGB → control de llama (Calderas > Sensores y Presostatos)
    - MUF / FAN INDUCER → motor forzador (Refrigeración > Compresores y Motores)
+
+5. CASOS ESPECIALES — calefactores de aire forzado (furnace), NO son calderas hidrónicas:
+   - Marcas: GOODMAN, WHITE-RODGERS, CARRIER, LENNOX, TRANE, YORK, BRYANT, RHEEM FURNACE
+   - Si el nombre menciona alguna de estas marcas, o dice "calefactor de aire", "aire forzado", "furnace", "caldera de aire" seguido de una de estas marcas → la categoría NUNCA es "Calefacción > Calderas", es "Calefacción > Calefactores > Repuestos Generales" (salvo que exista un nivel4 más específico para calefactores en la lista disponible, usar ese).
+   - En este caso, dentro de compatibilidad usar "calefactor de aire forzado" como tipo de equipo, no "caldera".
+   - Línea "CALDAIA" + "TOP"/"GENIUS" (ej. "MONOPLAQUETA TOP-2023 CALDAIA", "DISPLAY TOP GENIUS CALDAIA") → SÍ es una placa de caldera hidrónica, marca "Caldaia" (fabricante italiano de controles para calderas murales). No confundir con los casos de furnace de arriba.
 
 Usá TODA esta información combinada para elegir la categoría más específica y correcta de la lista disponible.
 
@@ -150,6 +157,7 @@ Formato exacto por producto:
 
 REGLAS PARA TAGS ESTRUCTURADOS (van DENTRO del array "tags", sumados a las palabras libres):
 - equipo:<tipo> — ej. "equipo:caldera", "equipo:calefon", "equipo:estufa-pellet", "equipo:bomba"
+  Para calefactores de aire forzado (Goodman y similares) usar "equipo:calefactor-aire-forzado", nunca "equipo:caldera".
 - marca:<marca-equipo> — la marca del EQUIPO compatible (ej. "marca:immergas"), una entrada por marca si hay varias
 - modelo:<modelo> — un tag por modelo compatible (ej. "modelo:eolo-star", "modelo:nike-star"), repetible
 - fabricante:<fabricante> — SOLO cuando el repuesto en sí (placa, sensor, válvula) es fabricado por un tercero distinto de la marca del equipo (ej. una placa Immergas con componente Surrey/Honeywell/Zettler → "fabricante:surrey"). Si la marca del equipo y el fabricante del repuesto son la misma, no repetir el tag.
