@@ -148,6 +148,17 @@ Formato exacto por producto:
   "keywords_sugeridas": null
 }
 
+REGLAS PARA TAGS ESTRUCTURADOS (van DENTRO del array "tags", sumados a las palabras libres):
+- equipo:<tipo> — ej. "equipo:caldera", "equipo:calefon", "equipo:estufa-pellet", "equipo:bomba"
+- marca:<marca-equipo> — la marca del EQUIPO compatible (ej. "marca:immergas"), una entrada por marca si hay varias
+- modelo:<modelo> — un tag por modelo compatible (ej. "modelo:eolo-star", "modelo:nike-star"), repetible
+- fabricante:<fabricante> — SOLO cuando el repuesto en sí (placa, sensor, válvula) es fabricado por un tercero distinto de la marca del equipo (ej. una placa Immergas con componente Surrey/Honeywell/Zettler → "fabricante:surrey"). Si la marca del equipo y el fabricante del repuesto son la misma, no repetir el tag.
+- pieza:<tipo-de-pieza> — ej. "pieza:placa-electronica", "pieza:vaso-expansion", "pieza:forzador"
+- medida:<medida> — solo si hay medida física relevante para búsqueda (ej. "medida:3-4", "medida:76mm")
+- oem:<codigo> — código de fabricante/OEM tal cual figura en el producto (ej. "oem:btg12"), uno por código
+- Si un dato no aplica o no se puede inferir con confianza, omitir ese tag — nunca inventar marca, modelo u OEM.
+- Todos en minúsculas, sin acentos, guiones en vez de espacios (mismo criterio que "slug").
+
 REGLAS PARA LAS PROPIEDADES:
 
 PROPIEDAD 1 — Marca compatible:
