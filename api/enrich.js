@@ -35,7 +35,9 @@ Calefacción > Calderas: Plaquetas y Electrónica | Hidráulicos | Quemadores y 
 Calefacción > Calefactores: Termocuplas y Pilotos | Válvulas y Gas | Repuestos Generales
 Calefacción > Radiadores: Válvulas y Detentores | Accesorios
 Calefacción > Piso Radiante: Membranas y Tubería
-Calefacción > Salamandras: Conductos Enlozados | Repuestos Generales
+Calefacción > Salamandras: Conductos Enlozados | Repuestos Generales | Vidrios y Juntas | Refractarios y Deflectores
+Calefacción > Estufas a Pellet: Resistencias de Encendido | Motores y Forzadores | Sensores y Placas | Vidrios y Juntas
+Calefacción > Bombas y Presurizadoras: Sellos y Capacitores | Presostatos y Membranas | Impulsores y Kits
 Agua Sanitaria > Termotanques: Resistencias y Ánodos | Termostatos y Válvulas
 Agua Sanitaria > Calefones: Diafragmas y Membranas | Termocuplas y Pilotos | Unidades Magnéticas
 Agua Sanitaria > Filtros de Agua: Cartuchos y Membranas | Vasos y Filtros Completos
@@ -55,7 +57,7 @@ CÓMO ANALIZAR CADA PRODUCTO para asignar categoría:
 
 1. NOMBRE DEL PRODUCTO — es la fuente principal:
    - Buscar el tipo de repuesto: diafragma, electrodo, termocupla, etc.
-   - Buscar la marca del equipo: Orbis, Longvie, Baxi, Vaillant, Ferroli, Junkers, Rheem, Domec, Coppens, Eskabe, Target, Peisa, etc.
+   - Buscar la marca del equipo: Orbis, Longvie, Baxi, Vaillant, Ferroli, Junkers, Rheem, Domec, Coppens, Eskabe, Target, Peisa, Tromen, Ñuke, Bosca, Brago, Grundfos, Pluvius, etc.
    - Buscar códigos de fabricante: BTG12, NTC10K, SIT820, etc.
    - Buscar el equipo compatible: "PARA CALDERA", "PARA CALEFON", etc.
 
@@ -73,6 +75,8 @@ CÓMO ANALIZAR CADA PRODUCTO para asignar categoría:
    - Proveedores de calefones: LONGVIE, ORBIS, DOMEC, RHEEM
    - Proveedores de refrigeración: NECTON, CARRIER, MOLISE
    - Proveedores eléctricos: BAW, SIEMENS, SCHNEIDER, THOMELEC
+   - Proveedores de pellet/leña: TROMEN, ÑUKE, BOSCA, BRAGO
+   - Proveedores de bombas/presurizadoras: GRUNDFOS, PLUVIUS, ROWA
 
 4. CÓDIGOS ESPECÍFICOS que identifican el producto:
    - BTG12 → electrodo de encendido (Calderas > Quemadores y Encendido)
