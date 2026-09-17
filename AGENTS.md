@@ -101,6 +101,39 @@ clasificación como los enriquecidos (`nombre_limpio`, `marca`, `prop1..3`,
 dimensiones, `categoria_tiendanube`) — solo se sobreescribe un campo si
 viene no-vacío en el request, para no pisar datos ya cargados con `null`.
 
+### marcas — Marcas y fabricantes (fuente de verdad, NO hardcodear en el prompt)
+```sql
+id, slug (UNIQUE), nombre, tipo, categoria_nivel3, categoria_forzada, alias[], activa
+```
+Ver `supabase_marcas.sql`. `tipo` es `marca_equipo` (marca del equipo al que
+pertenece el repuesto) o `fabricante_componente` (quién fabrica la placa/
+sensor/válvula, que puede ser distinto de la marca del equipo).
+
+`api/enrich.js` lee esta tabla en cada request y arma con ella las listas de
+marcas del prompt. **Sumar una marca nueva es un INSERT acá, no una edición
+del prompt.** Si la tabla no está disponible se cae a `DEFAULT_MARCAS` dentro
+de `api/enrich.js`, que es sólo un fallback mínimo, no la fuente de verdad.
+
+- `categoria_forzada`: path completo. Si el producto menciona la marca,
+  `api/enrich.js` pisa la categoría que devolvió la IA con este path, en
+  código y antes de la validación de categorías — es una regla de negocio,
+  no una sugerencia al modelo. Se usa para el caso furnace (Goodman y
+  similares, que nunca van a Calderas). El resultado queda marcado con
+  `categoria_forzada_por`. El path tiene que existir tal cual en
+  `tiendanube_categories` o la función lo loguea como error.
+- `alias`: variantes de escritura que se normalizan al mismo slug, para que
+  no convivan "immergas"/"Immergas"/"inmergas" como marcas distintas.
+
+### productos_publicados — Registro de lo ya importado a Tienda Nube
+```sql
+id, slug (UNIQUE), codigo, categoria_tiendanube, lote, fecha_publicado
+```
+Ver `supabase_productos_publicados.sql`. No hay API de Tienda Nube conectada:
+esta tabla se llena desde la app con el botón "Marcar lote como publicado",
+a mano y después de confirmar que la importación salió bien. Sirve para que
+el chequeo de slugs duplicados alcance también a lotes anteriores, no sólo
+al que se está exportando.
+
 ### tn_corrections — Correcciones de categoría Tienda Nube
 ```sql
 id, codigo (UNIQUE), producto, categoria_tiendanube, updated_at
@@ -206,6 +239,12 @@ Al enriquecer productos para Tienda Nube, Groq genera:
 - categoria_tiendanube (path completo 4 niveles)
 - es_categoria_nueva + keywords_sugeridas (si sugiere nivel4 nuevo)
 
+Las listas de marcas y fabricantes del prompt se arman en cada request desde
+la tabla `marcas` (ver arriba), no están escritas en el código. Después de
+la respuesta de la IA, `api/enrich.js` aplica dos pasos determinísticos:
+normaliza `marca` al slug canónico (`marca_slug`) y pisa la categoría si
+alguna marca mencionada tiene `categoria_forzada`.
+
 ### Categorías TN — REGLAS ESTRICTAS para la IA:
 La IA DEBE elegir de la lista exacta cargada desde tiendanube_categories.
 - Siempre devolver el path completo: "Nivel1 > Nivel2 > Nivel3 > Nivel4"
@@ -304,6 +343,7 @@ responsabilidad de quien exporta revisar antes de importar en Tienda Nube
 | api/tn-categories.js | GET, POST, PUT, DELETE | Categorías Tienda Nube |
 | api/tn-corrections.js | GET, POST, DELETE | Correcciones de categoría TN |
 | api/rules.js | GET, POST, DELETE | Reglas dinámicas de clasificación |
+| api/published.js | GET, POST | Registro de lo ya publicado en TN (`check` / `mark`) |
 
 ### Patrón estándar de cada función:
 ```js
@@ -362,3 +402,34 @@ Verificar npm run build antes de cada push.
 9. Revisar y editar campos si es necesario
 10. Descargar CSV y guardar análisis en historial
 11. Importar CSV en Tienda Nube → Productos → Importar
+
+---
+
+## Flujo al sumar una familia de productos
+
+Checklist reproducible — son los mismos pasos que se hicieron a mano con el
+lote de placas de Calderas. La idea es que sumar una familia sea cargar
+datos, no editar código.
+
+1. **Categorías nuevas** → `INSERT` en `tiendanube_categories`
+   (ej. `supabase_pellet_bombas_categories.sql`).
+2. **Marcas nuevas** → `INSERT` en `marcas`. Nunca editar el prompt de
+   `api/enrich.js` a mano para agregar una marca. Si la familia tiene un
+   caso tipo furnace (una marca que siempre va a una categoría concreta,
+   sin importar lo que infiera la IA), cargarla con `categoria_forzada`.
+3. Cargar el lote en la app → clasificar → enriquecer con IA.
+4. Revisar las filas marcadas para revisión: confianza baja, sin marca
+   identificable, o con `categoria_forzada_por` (conviene confirmar que la
+   regla aplicó donde correspondía).
+5. Exportar → el chequeo de duplicados corre solo, intra-lote
+   (`exportTiendaNubeCSV`) y contra `productos_publicados`.
+6. Importar el CSV en Tienda Nube, a mano.
+7. Confirmado el import → botón "Marcar lote como publicado".
+8. Si el lote fue grande → "Exportar todas las correcciones" desde Ajustes,
+   como respaldo offline.
+
+> El único lugar que sigue teniendo estructura de categorías escrita a mano
+> es `ESTRUCTURA_REFERENCIA` en `buildSystemPrompt()` (`api/enrich.js`), y es
+> a propósito: es una guía de estilo para la IA, no una fuente de datos. No
+> necesita estar 100% sincronizada, pero conviene que no le falte ningún
+> nivel3 nuevo.
