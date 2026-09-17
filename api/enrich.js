@@ -1,3 +1,5 @@
+import { supabaseQuery } from './_helpers.js'
+
 const MODELS = [
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
@@ -7,7 +9,54 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function buildSystemPrompt(tnCats, force_nivel4 = false) {
+// Fallback mínimo si la tabla `marcas` todavía no existe o Supabase no responde.
+// NO es la fuente de verdad — esa es la tabla `marcas` (ver supabase_marcas.sql).
+// Existe sólo para que el prompt no se quede sin ninguna pista de marca, igual
+// que DEFAULT_RULES en src/constants.js cubre una tabla de reglas vacía.
+const DEFAULT_MARCAS = [
+  { slug: 'baxi',     nombre: 'Baxi',     tipo: 'marca_equipo', categoria_nivel3: 'Calderas',  categoria_forzada: null, alias: [] },
+  { slug: 'orbis',    nombre: 'Orbis',    tipo: 'marca_equipo', categoria_nivel3: 'Calefones', categoria_forzada: null, alias: [] },
+  { slug: 'longvie',  nombre: 'Longvie',  tipo: 'marca_equipo', categoria_nivel3: 'Calefones', categoria_forzada: null, alias: [] },
+]
+
+function slugifyMarca(text) {
+  return (text || '').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .trim()
+}
+
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Match por palabra completa para no disparar con coincidencias parciales
+// (ej. "york" dentro de otra palabra).
+function textoMencionaMarca(texto, marca) {
+  const candidatos = [marca.nombre, ...(marca.alias || [])].filter(Boolean)
+  return candidatos.some(c => {
+    try {
+      return new RegExp(`(^|[^a-záéíóúñ0-9])${escapeRegExp(c.toLowerCase())}([^a-záéíóúñ0-9]|$)`, 'i').test(texto)
+    } catch {
+      return texto.includes(c.toLowerCase())
+    }
+  })
+}
+
+// Normaliza la marca detectada al slug canónico de la tabla, para que no
+// convivan "immergas" / "Immergas" / "inmergas" como cosas distintas.
+function normalizarMarca(textoDetectado, marcas) {
+  const t = (textoDetectado || '').toLowerCase().trim()
+  if (!t) return ''
+  const match = marcas.find(m =>
+    m.nombre.toLowerCase() === t || (m.alias || []).some(a => a.toLowerCase() === t)
+  )
+  return match ? match.slug : slugifyMarca(textoDetectado)
+}
+
+function buildSystemPrompt(tnCats, marcas, force_nivel4 = false) {
   const catList = tnCats && tnCats.length > 0
     ? tnCats.map(c => [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(' > ')).filter(Boolean).join('\n')
     : 'Repuestos y Accesorios > Calefaccion\nRepuestos y Accesorios > Refrigeracion\nRepuestos y Accesorios > Gas y Agua\nRepuestos y Accesorios > Agua Sanitaria\nRepuestos y Accesorios > Herramientas'
@@ -25,6 +74,39 @@ function buildSystemPrompt(tnCats, force_nivel4 = false) {
   const nivel4Contexto = Object.entries(nivel4PorNivel3)
     .map(([k, v]) => `${k}: ${v.join(' | ')}`)
     .join('\n')
+
+  // ── Listas de marcas armadas desde la tabla `marcas` (no hardcodeadas) ──
+  const marcasEquipo = marcas.filter(m => m.tipo === 'marca_equipo')
+  const marcasFabricante = marcas.filter(m => m.tipo === 'fabricante_componente')
+
+  const marcasEquipoStr = marcasEquipo.map(m => m.nombre).join(', ') || '(sin marcas cargadas)'
+  const marcasFabricanteStr = marcasFabricante.map(m => m.nombre).join(', ') || '(sin fabricantes cargados)'
+
+  // Agrupadas por el nivel3 donde suelen aparecer — reemplaza la lista de
+  // "Proveedores de X: ..." que antes estaba escrita a mano.
+  const porNivel3 = {}
+  marcasEquipo.forEach(m => {
+    if (!m.categoria_nivel3) return
+    if (!porNivel3[m.categoria_nivel3]) porNivel3[m.categoria_nivel3] = []
+    porNivel3[m.categoria_nivel3].push(m.nombre)
+  })
+  const marcasPorNivel3Str = Object.entries(porNivel3)
+    .map(([nivel3, nombres]) => `   - Marcas típicas de ${nivel3}: ${nombres.join(', ')}`)
+    .join('\n') || '   - (sin marcas cargadas en la tabla marcas)'
+
+  // Marcas con categoría forzada: el prompt las menciona, pero la regla real
+  // se aplica en código después de la respuesta de la IA (ver handler).
+  const marcasForzadas = marcas.filter(m => m.categoria_forzada)
+  const marcasForzadasStr = marcasForzadas.map(m => m.nombre).join(', ')
+  const bloqueForzadas = marcasForzadas.length > 0
+    ? `
+5. CASOS ESPECIALES — calefactores de aire forzado (furnace), NO son calderas hidrónicas:
+   - Marcas: ${marcasForzadasStr}
+   - Si el nombre menciona alguna de estas marcas, o dice "calefactor de aire", "aire forzado", "furnace", "caldera de aire" → la categoría NUNCA es "Calefacción > Calderas". Usar la categoría de calefactores correspondiente de la lista disponible.
+   - En este caso, dentro de compatibilidad usar "calefactor de aire forzado" como tipo de equipo, no "caldera".
+   - Línea "CALDAIA" + "TOP"/"GENIUS" (ej. "MONOPLAQUETA TOP-2023 CALDAIA", "DISPLAY TOP GENIUS CALDAIA") → SÍ es una placa de caldera hidrónica, marca "Caldaia" (fabricante italiano de controles para calderas murales). No confundir con los casos de furnace de arriba.
+`
+    : ''
 
   const forceNivel4Block = force_nivel4
     ? '\nATENCIÓN: Para TODOS los productos de esta lista, el path de categoría llega solo hasta nivel3. DEBES agregar un nivel4 específico y coherente con los existentes en ese nivel3. No devolver paths sin nivel4.\n'
@@ -57,7 +139,8 @@ CÓMO ANALIZAR CADA PRODUCTO para asignar categoría:
 
 1. NOMBRE DEL PRODUCTO — es la fuente principal:
    - Buscar el tipo de repuesto: diafragma, electrodo, termocupla, etc.
-   - Buscar la marca del equipo: Orbis, Longvie, Baxi, Vaillant, Ferroli, Junkers, Rheem, Domec, Coppens, Eskabe, Target, Peisa, Tromen, Ñuke, Bosca, Brago, Grundfos, Pluvius, Caldaia, etc.
+   - Buscar la marca del equipo: ${marcasEquipoStr}
+   - Fabricantes de componentes (placas, sensores, válvulas de terceros): ${marcasFabricanteStr}
    - Buscar códigos de fabricante: BTG12, NTC10K, SIT820, etc.
    - Buscar el equipo compatible: "PARA CALDERA", "PARA CALEFON", etc.
 
@@ -71,13 +154,7 @@ CÓMO ANALIZAR CADA PRODUCTO para asignar categoría:
    - "MATERIALES ELECTRICOS" → Materiales Eléctricos
 
 3. PROVEEDOR — da pistas de la marca y tipo:
-   - Proveedores de calderas: BAXI, VAILLANT, FERROLI, JUNKERS, PEISA
-   - Proveedores de calefones: LONGVIE, ORBIS, DOMEC, RHEEM
-   - Proveedores de refrigeración: NECTON, CARRIER, MOLISE
-   - Proveedores eléctricos: BAW, SIEMENS, SCHNEIDER, THOMELEC
-   - Proveedores de pellet/leña: TROMEN, ÑUKE, BOSCA, BRAGO
-   - Proveedores de bombas/presurizadoras: GRUNDFOS, PLUVIUS, ROWA
-   - Proveedores de calefactores de aire forzado (furnace, NO calderas): GOODMAN, WHITE-RODGERS, CARRIER, LENNOX, TRANE
+${marcasPorNivel3Str}
 
 4. CÓDIGOS ESPECÍFICOS que identifican el producto:
    - BTG12 → electrodo de encendido (Calderas > Quemadores y Encendido)
@@ -87,12 +164,7 @@ CÓMO ANALIZAR CADA PRODUCTO para asignar categoría:
    - DKG / LGB → control de llama (Calderas > Sensores y Presostatos)
    - MUF / FAN INDUCER → motor forzador (Refrigeración > Compresores y Motores)
 
-5. CASOS ESPECIALES — calefactores de aire forzado (furnace), NO son calderas hidrónicas:
-   - Marcas: GOODMAN, WHITE-RODGERS, CARRIER, LENNOX, TRANE, YORK, BRYANT, RHEEM FURNACE
-   - Si el nombre menciona alguna de estas marcas, o dice "calefactor de aire", "aire forzado", "furnace", "caldera de aire" seguido de una de estas marcas → la categoría NUNCA es "Calefacción > Calderas", es "Calefacción > Calefactores > Repuestos Generales" (salvo que exista un nivel4 más específico para calefactores en la lista disponible, usar ese).
-   - En este caso, dentro de compatibilidad usar "calefactor de aire forzado" como tipo de equipo, no "caldera".
-   - Línea "CALDAIA" + "TOP"/"GENIUS" (ej. "MONOPLAQUETA TOP-2023 CALDAIA", "DISPLAY TOP GENIUS CALDAIA") → SÍ es una placa de caldera hidrónica, marca "Caldaia" (fabricante italiano de controles para calderas murales). No confundir con los casos de furnace de arriba.
-
+${bloqueForzadas}
 Usá TODA esta información combinada para elegir la categoría más específica y correcta de la lista disponible.
 
 CATEGORÍAS DISPONIBLES — LISTA COMPLETA Y DEFINITIVA:
@@ -248,7 +320,30 @@ export default async function handler(req, res) {
   console.log('[enrich] tnCategories recibidas:', tnCats.length)
   console.log('[enrich] Primeras 3:', tnCats.slice(0, 3).map(c => c.nivel4 || c.nivel3))
 
-  const SYSTEM_PROMPT = buildSystemPrompt(tnCats, force_nivel4)
+  // Las marcas se leen server-side (no del body) porque categoria_forzada es una
+  // regla de negocio: tiene que aplicarse siempre, sin depender de lo que mande
+  // el cliente ni de que la IA respete una instrucción de texto.
+  let marcas = []
+  const SUPABASE_URL = process.env.SUPABASE_URL
+  const SUPABASE_KEY = process.env.SUPABASE_KEY
+  if (SUPABASE_URL && SUPABASE_KEY) {
+    try {
+      const data = await supabaseQuery(
+        '/rest/v1/marcas?select=slug,nombre,tipo,categoria_nivel3,categoria_forzada,alias&activa=eq.true',
+        {}, SUPABASE_URL, SUPABASE_KEY
+      )
+      if (Array.isArray(data)) marcas = data
+    } catch (e) {
+      console.warn('[enrich] No se pudieron cargar marcas de Supabase:', e.message)
+    }
+  }
+  if (marcas.length === 0) {
+    console.warn('[enrich] Tabla marcas vacía o no disponible — usando DEFAULT_MARCAS')
+    marcas = DEFAULT_MARCAS
+  }
+  console.log('[enrich] marcas cargadas:', marcas.length)
+
+  const SYSTEM_PROMPT = buildSystemPrompt(tnCats, marcas, force_nivel4)
 
   const batch = products.slice(0, 15)
   const userPrompt = 'Productos:\n' + JSON.stringify(
@@ -317,6 +412,52 @@ export default async function handler(req, res) {
         continue
       }
 
+      // ── Normalizar marca al slug canónico de la tabla `marcas` ───────────────
+      results = results.map(r => (
+        r.marca ? { ...r, marca_slug: normalizarMarca(r.marca, marcas) } : r
+      ))
+
+      // ── Categoría forzada por marca — regla de negocio, no sugerencia ────────
+      // Si el producto menciona una marca con categoria_forzada, se aplica sin
+      // importar lo que haya devuelto la IA. Corre ANTES de la validación de
+      // categorías, así el path forzado pasa por el mismo chequeo que el resto.
+      const marcasConForzada = marcas.filter(m => m.categoria_forzada)
+      if (marcasConForzada.length > 0) {
+        // El nombre original del producto es más confiable que el nombre_limpio
+        // de la IA para detectar la marca, así que se busca en ambos.
+        const textoOriginalPorCodigo = {}
+        batch.forEach(p => {
+          const cod = String(p.CODIGO || p.codigo || '').toLowerCase()
+          if (!cod) return
+          textoOriginalPorCodigo[cod] = [
+            p.PRODUCTO || p.producto || '',
+            p.PROVEEDOR || p.proveedor || '',
+          ].join(' ').toLowerCase()
+        })
+
+        results = results.map(r => {
+          const texto = [
+            r.nombre_limpio || '',
+            textoOriginalPorCodigo[String(r.codigo || '').toLowerCase()] || '',
+          ].join(' ').toLowerCase()
+          if (!texto.trim()) return r
+
+          const marcaForzada = marcasConForzada.find(m => textoMencionaMarca(texto, m))
+          if (!marcaForzada) return r
+
+          if (r.categoria_tiendanube !== marcaForzada.categoria_forzada) {
+            console.log(`[enrich] Categoría forzada por marca "${marcaForzada.slug}": "${r.categoria_tiendanube}" → "${marcaForzada.categoria_forzada}"`)
+          }
+          return {
+            ...r,
+            categoria_tiendanube: marcaForzada.categoria_forzada,
+            es_categoria_nueva: false,
+            keywords_sugeridas: null,
+            categoria_forzada_por: marcaForzada.slug,
+          }
+        })
+      }
+
       // ── Validar y corregir categorías devueltas por Groq ─────────────────────
       if (tnCats.length > 0) {
         const validPaths = new Set(
@@ -332,6 +473,16 @@ export default async function handler(req, res) {
 
         results = results.map(r => {
           if (!r.categoria_tiendanube) return r
+
+          // Una categoría forzada por marca no se re-evalúa: es regla de negocio.
+          // Si el path no existe en tiendanube_categories avisamos fuerte, porque
+          // significa que el dato de `marcas.categoria_forzada` quedó desalineado.
+          if (r.categoria_forzada_por) {
+            if (!validPaths.has(r.categoria_tiendanube.toLowerCase().trim())) {
+              console.error(`[enrich] categoria_forzada de "${r.categoria_forzada_por}" NO existe en tiendanube_categories: "${r.categoria_tiendanube}" — revisar la tabla marcas`)
+            }
+            return r
+          }
 
           // Validar es_categoria_nueva antes de procesar el path
           if (r.es_categoria_nueva) {
