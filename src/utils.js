@@ -405,6 +405,24 @@ export function exportTiendaNubeCSV(productos, tnCategories = []) {
     return isNaN(num) ? '' : String(num);
   }
 
+  // Chequeo de duplicados de slug antes de exportar — Tiendanube rechaza
+  // URLs repetidas y hoy no hay ninguna validación acá.
+  const slugCounts = {};
+  productos.forEach(p => {
+    const e = p._enriched || {};
+    const slug = e.slug || slugify(p.PRODUCTO || p.producto || '');
+    if (!slug) return;
+    slugCounts[slug] = (slugCounts[slug] || []).concat(p.CODIGO || p.codigo || '(sin código)');
+  });
+  const duplicados = Object.entries(slugCounts).filter(([, codigos]) => codigos.length > 1);
+  if (duplicados.length > 0) {
+    const detalle = duplicados.map(([slug, codigos]) => `  - "${slug}" ← ${codigos.join(', ')}`).join('\n');
+    console.warn(`[exportTiendaNubeCSV] ${duplicados.length} slug(s) duplicado(s):\n${detalle}`);
+    if (typeof alert === 'function') {
+      alert(`Atención: hay ${duplicados.length} identificador(es) de URL duplicado(s). Revisá la consola antes de importar en Tiendanube — un slug repetido pisa el producto anterior.\n\n${detalle}`);
+    }
+  }
+
   const rows = productos.map(p => {
     const e = p._enriched || {};
 
