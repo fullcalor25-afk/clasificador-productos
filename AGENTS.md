@@ -94,6 +94,13 @@ Fuente de verdad: cada corrección manual del usuario se guarda aquí.
 Al cargar productos, se aplican automáticamente por CODIGO.
 Prioridad máxima sobre IA y reglas.
 
+`POST /api/corrections` acepta dos modos: una corrección individual
+(`{codigo, clasificacion_corregida, ...}`) o carga masiva
+(`{bulk: [...]}`, chunks de 100). Ambos modos guardan tanto los campos de
+clasificación como los enriquecidos (`nombre_limpio`, `marca`, `prop1..3`,
+dimensiones, `categoria_tiendanube`) — solo se sobreescribe un campo si
+viene no-vacío en el request, para no pisar datos ya cargados con `null`.
+
 ### tn_corrections — Correcciones de categoría Tienda Nube
 ```sql
 id, codigo (UNIQUE), producto, categoria_tiendanube, updated_at
@@ -107,21 +114,33 @@ nivel1 único: "Repuestos y Accesorios"
 
 #### Estructura de categorías
 
-**La fuente de verdad es la tabla `tiendanube_categories` en Supabase**,
-no este documento. El árbol crece con el catálogo real (ver por ejemplo
-`supabase_pellet_bombas_categories.sql` para las categorías de pellet/
-leña/bombas) y una tabla hardcodeada acá se desalinea apenas se agrega
-o borra una fila. Para ver el árbol vigente:
+**La fuente de verdad es la tabla `tiendanube_categories` en Supabase — no este archivo.**
+Este doc dejó de listar nivel4 a mano porque se desalineaba con la base real
+cada vez que se agregaba una categoría (pasó con Pellet/Bombas en 2026-09).
 
-```sql
-SELECT nivel2, nivel3, nivel4 FROM tiendanube_categories
-WHERE activa = true ORDER BY nivel2, nivel3, orden;
-```
+Para ver el estado actual: `SELECT nivel1, nivel2, nivel3, nivel4, activa, orden
+FROM tiendanube_categories ORDER BY orden;` en Supabase, o desde la vista
+`categories` de la app (Categorías TN → paneles cascada).
 
-o desde la app, en la vista "Categorías TN".
+nivel2 activos hoy: Calefacción, Agua Sanitaria, Refrigeración,
+Materiales Eléctricos, Materiales de Instalación.
+
+nivel3 conocidos bajo Calefacción: Calderas, Calefones, Calefactores,
+Radiadores, Piso Radiante, Salamandras, Estufas a Pellet, Bombas y
+Presurizadoras. Si se agrega un nivel3 o nivel4 nuevo, el único lugar
+que hay que tocar además de Supabase es `ESTRUCTURA_REFERENCIA` dentro de
+`buildSystemPrompt()` en `api/enrich.js` (es una guía de estilo para la IA,
+no la lista completa — no hace falta que esté 100% sincronizada, pero sí
+que no falte ningún nivel3 nuevo).
+
+> **Nota:** La categoría "Componentes Eléctricos" fue eliminada.
+> Sus subcategorías fueron redistribuidas:
+> - Capacitores y Contactores → Refrigeración > Compresores y Motores
+> - Dispositivos de Protección → Materiales de Instalación > Protección Eléctrica
+> - Termostatos → Materiales de Instalación > Termostatos Ambiente
 
 Las keywords de cada categoría son usadas por la IA para asignar
-productos automáticamente — también viven en Supabase, no acá.
+productos automáticamente. Son la fuente de verdad para la IA.
 
 ### analyses — Historial de análisis guardados
 ```sql
@@ -161,7 +180,7 @@ defecto. Si se crea una tabla nueva, replicar el mismo patrón.
 ### Prioridad (de mayor a menor):
 1. **Correcciones aprendidas** (tabla corrections) — confianza 100%, fuente APRENDIDO
 2. **IA Groq** (api/classify.js) — si confianza > reglas locales, fuente IA
-3. **Reglas locales** (classifyProduct en App.jsx) — keywords + scoring, fuente REGLAS
+3. **Reglas locales** (classifyProduct en src/utils.js) — keywords + scoring, fuente REGLAS
 
 ### Categorías de clasificación:
 - REPUESTO — pieza que reemplaza parte dañada de un equipo
@@ -205,6 +224,27 @@ Ejemplo: si Calderas ya tiene "Plaquetas y Electrónica", "Hidráulicos",
 "Quemadores y Encendido" → un nuevo nivel4 debe seguir ese estilo
 (sustantivos + adjetivo, no verbos, en español).
 
+### Tags de compatibilidad estructurados
+
+Además de las palabras libres, el array `tags` de cada producto enriquecido
+puede incluir tags con prefijo fijo, generados por la IA cuando hay
+información suficiente en el nombre del producto:
+
+| Prefijo | Qué indica | Ejemplo |
+|---------|-----------|---------|
+| `equipo:` | Tipo de equipo compatible | `equipo:caldera` |
+| `marca:` | Marca del EQUIPO (no del repuesto) | `marca:immergas` |
+| `modelo:` | Modelo compatible, uno por tag, repetible | `modelo:eolo-star` |
+| `fabricante:` | Fabricante del repuesto en sí (placa/sensor/válvula), SOLO si es distinto de la marca del equipo | `fabricante:surrey` |
+| `pieza:` | Tipo de pieza | `pieza:placa-electronica` |
+| `medida:` | Medida física relevante para búsqueda | `medida:3-4` |
+| `oem:` | Código de fabricante/OEM tal cual figura en el producto | `oem:btg12` |
+
+`marca:` y `fabricante:` son conceptos distintos y no se pisan: una
+plaqueta Immergas con componente Surrey lleva `marca:immergas` +
+`fabricante:surrey`. Si un dato no se puede inferir con confianza, la IA
+lo omite — nunca inventa marca, modelo u OEM.
+
 ---
 
 ## Exportación a Tienda Nube
@@ -224,6 +264,13 @@ Tags;"Título para SEO";"Descripción para SEO";Marca;"Producto Físico";
 - Producto Físico: SI
 - Precio promocional, Código de barras, Sexo, Rango de edad, Costo: vacíos
 - Mostrar en tienda: SI si precio > 0, NO si precio = 0
+
+### Validación antes de exportar:
+`exportTiendaNubeCSV()` chequea que "Identificador de URL" (el slug) no se
+repita entre los productos seleccionados. Si hay duplicados, loguea el
+detalle en consola y muestra un alert — no bloquea la descarga, es
+responsabilidad de quien exporta revisar antes de importar en Tienda Nube
+(un slug repetido pisa el producto anterior al importar).
 
 ### Precio formato: 1,615,050.00 (coma para miles, punto para decimales)
 ### Encoding: UTF-8 con BOM (﻿)
