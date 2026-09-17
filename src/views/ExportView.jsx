@@ -71,6 +71,7 @@ export default function ExportView({
   const [enrichProcessed, setEnrichProcessed] = useState(0);
   const [individualEditingProduct, setIndividualEditingProduct] = useState(null);
   const [showExportWarning, setShowExportWarning] = useState(false);
+  const [marcandoPublicado, setMarcandoPublicado] = useState(false);
   const [sinNivel4, setSinNivel4] = useState([]);
   const [nivel4Loading, setNivel4Loading] = useState(false);
   const enrichAbortRef = useRef(false);
@@ -281,12 +282,72 @@ export default function ExportView({
     }
   };
 
-  const handleDownloadClick = () => {
+  // Slug tal como lo va a escribir el CSV — misma resolución que exportTiendaNubeCSV()
+  const slugDeProducto = (p) => (p._enriched?.slug || slugify(p.PRODUCTO || p.producto || ""));
+
+  // Chequeo contra lo ya publicado en lotes anteriores. El chequeo intra-lote
+  // vive en exportTiendaNubeCSV(); este cubre lo que la app no puede ver: lo
+  // que ya está arriba en Tienda Nube.
+  const avisarSiYaPublicados = async () => {
+    const slugs = [...new Set(selectedProducts.map(slugDeProducto).filter(Boolean))];
+    if (slugs.length === 0) return;
+    try {
+      const data = await apiFetch("/api/published", {
+        method: "POST",
+        body: JSON.stringify({ check: slugs }),
+      });
+      const publicados = data?.publicados || [];
+      if (publicados.length === 0) return;
+
+      const detalle = publicados
+        .map(p => `  - "${p.slug}" ← ya publicado${p.lote ? ` en lote "${p.lote}"` : ""}`)
+        .join("\n");
+      console.warn(`[ExportView] ${publicados.length} slug(s) ya publicados:\n${detalle}`);
+      alert(`Atención: ${publicados.length} producto(s) de este lote ya fueron publicados antes.\n\nSi es una actualización intencional, seguí. Si no, revisá — al importar, un slug repetido pisa el producto anterior.\n\n${detalle}`);
+    } catch (e) {
+      // Que falle el chequeo no debe impedir exportar
+      console.warn("[ExportView] No se pudo chequear productos publicados:", e.message);
+    }
+  };
+
+  const handleDownloadClick = async () => {
+    await avisarSiYaPublicados();
     const { withoutPrice, withoutCat, withoutDesc } = stats;
     if (withoutPrice > 0 || withoutCat > 0 || withoutDesc > 0) {
       setShowExportWarning(true);
     } else {
       exportTiendaNubeCSV(selectedProducts, tnCategories);
+    }
+  };
+
+  // Se llama a mano DESPUÉS de confirmar que la importación en Tienda Nube
+  // salió bien — la app no tiene forma de saberlo sola.
+  const handleMarcarPublicado = async () => {
+    const hoy = new Date();
+    const sugerido = `lote-${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+    const lote = prompt(
+      `Nombre del lote (para poder identificarlo después):\n\nSe van a marcar ${selectedProducts.length} productos como ya publicados en Tienda Nube.`,
+      sugerido
+    );
+    if (lote === null) return;
+
+    setMarcandoPublicado(true);
+    try {
+      const mark = selectedProducts.map(p => ({
+        slug: slugDeProducto(p),
+        codigo: p.CODIGO || p.codigo || "",
+        categoria_tiendanube: getCategoriaTN(p, tnCategories),
+      })).filter(m => m.slug);
+
+      const data = await apiFetch("/api/published", {
+        method: "POST",
+        body: JSON.stringify({ mark, lote: lote.trim() }),
+      });
+      toast?.success?.(`✅ ${data?.marked ?? mark.length} productos marcados como publicados.`);
+    } catch (e) {
+      toast?.error?.(`No se pudo marcar el lote: ${e.message}`);
+    } finally {
+      setMarcandoPublicado(false);
     }
   };
 
@@ -754,12 +815,22 @@ export default function ExportView({
                 </div>
               </div>
             ) : (
-              <button
-                onClick={handleDownloadClick}
-                style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: C.success, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 6px -1px rgba(16,185,129,0.2)", marginBottom: 24 }}
-              >
-                📥 Descargar CSV Tienda Nube (24 columnas)
-              </button>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 24 }}>
+                <button
+                  onClick={handleDownloadClick}
+                  style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: C.success, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 6px -1px rgba(16,185,129,0.2)" }}
+                >
+                  📥 Descargar CSV Tienda Nube (24 columnas)
+                </button>
+                <button
+                  onClick={handleMarcarPublicado}
+                  disabled={marcandoPublicado || selectedProducts.length === 0}
+                  title="Marcar estos productos como ya publicados, DESPUÉS de confirmar que la importación en Tienda Nube salió bien"
+                  style={{ padding: "12px 20px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, fontSize: 13, fontWeight: 600, cursor: marcandoPublicado ? "default" : "pointer" }}
+                >
+                  {marcandoPublicado ? "Marcando..." : "✓ Marcar lote como publicado"}
+                </button>
+              </div>
             )}
 
             {/* Preview tabla completa */}
