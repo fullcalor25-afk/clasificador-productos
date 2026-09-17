@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { C } from "../constants";
+import { apiFetch } from "../utils";
 
 export default function SettingsView({
   classifiedProductsCount = 0,
@@ -34,6 +35,41 @@ export default function SettingsView({
   // Dangerous triggers input checks
   const [confirmHistoryInput, setConfirmHistoryInput] = useState("");
   const [confirmCorrectionsInput, setConfirmCorrectionsInput] = useState("");
+
+  const [backupLoading, setBackupLoading] = useState(false);
+
+  // Copia offline de las correcciones — es el dato más valioso de la app y no
+  // debería depender sólo del backup automático de Supabase (que varía según
+  // el plan contratado). El JSON sale como array plano de filas, que es
+  // exactamente lo que acepta el modo bulk de POST /api/corrections, así que
+  // se puede reimportar sin transformarlo.
+  const handleBackupCorrections = async () => {
+    setBackupLoading(true);
+    try {
+      const data = await apiFetch("/api/corrections");
+      const rows = Array.isArray(data) ? data : [];
+      if (rows.length === 0) {
+        toast?.info?.("No hay correcciones para exportar.");
+        return;
+      }
+
+      const blob = new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const d = new Date();
+      const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `correcciones-${stamp}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast?.success?.(`${rows.length} correcciones exportadas.`);
+    } catch (e) {
+      toast?.error?.(`No se pudo exportar el backup: ${e.message}`);
+    } finally {
+      setBackupLoading(false);
+    }
+  };
 
   const handleSaveSettings = () => {
     if (groqKey.trim()) {
@@ -178,6 +214,24 @@ export default function SettingsView({
             <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600 }}>CATEGORÍAS TN</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{categoriesCount} nodos</div>
           </div>
+        </div>
+
+        <div style={{ height: 1, background: C.border, marginTop: 4 }} />
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <strong style={{ color: C.text, fontSize: 13 }}>Backup de correcciones</strong>
+            <div style={{ fontSize: 11, color: C.textMuted }}>
+              Descarga un JSON con las {correctionsCount} correcciones aprendidas. Se puede reimportar tal cual desde Aprendizaje.
+            </div>
+          </div>
+          <button
+            onClick={handleBackupCorrections}
+            disabled={backupLoading}
+            style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.text, fontSize: 12, fontWeight: 600, cursor: backupLoading ? "default" : "pointer", whiteSpace: "nowrap" }}
+          >
+            {backupLoading ? "Exportando..." : "💾 Exportar todas las correcciones"}
+          </button>
         </div>
       </div>
 
