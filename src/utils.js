@@ -328,14 +328,15 @@ export async function fetchWithTimeout(url, options = {}, timeout = 30000) {
  * - Maps network errors to user-friendly messages
  */
 export async function apiFetch(url, options = {}) {
+  const { timeout, ...rest } = options;
   try {
     const res = await fetchWithTimeout(url, {
-      ...options,
+      ...rest,
       headers: {
         "Content-Type": "application/json",
-        ...(options.headers || {}),
+        ...(rest.headers || {}),
       },
-    });
+    }, timeout);
     const data = await res.json().catch(() => ({ error: "Respuesta inválida del servidor" }));
     if (!res.ok) {
       const msg = data.error || data.message || `Error ${res.status}`;

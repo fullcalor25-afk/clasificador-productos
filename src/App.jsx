@@ -706,6 +706,7 @@ export default function ProductClassifier() {
                 }
               }}
               onUpdateHistoryClass={updateHistoryProduct}
+              toast={toast}
             />
           )}
 
