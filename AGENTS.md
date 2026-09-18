@@ -30,10 +30,20 @@ y con ficha completa lista para importar.
 ## Variables de entorno (Vercel)
 
 ```
-GROQ_API_KEY        API key de Groq
-SUPABASE_URL        URL del proyecto Supabase
-SUPABASE_KEY        anon public key de Supabase
+GROQ_API_KEY              API key de Groq
+ANTHROPIC_API_KEY         API key de Anthropic (OCR de fotos de placas)
+SUPABASE_URL              URL del proyecto Supabase
+SUPABASE_KEY              anon public key de Supabase
+
+VITE_SUPABASE_URL         idem SUPABASE_URL, para el frontend
+VITE_SUPABASE_ANON_KEY    idem SUPABASE_KEY, para el frontend
 ```
+
+Las dos `VITE_*` son las únicas variables del frontend, y existen solo para
+que el celular suba las fotos DIRECTO a Supabase Storage sin pasar por una
+función serverless (el body de las Vercel Functions tiene un límite de ~4.5MB
+y una foto de iPhone sin comprimir lo pasa). Es la misma anon key pública:
+la seguridad la da la policy del bucket, no el secreto de la key.
 
 IMPORTANTE: Las funciones serverless usan SUPABASE_URL y SUPABASE_KEY
 (sin prefijo VITE_). El prefijo VITE_ solo aplica al frontend de Vite.
@@ -48,6 +58,9 @@ funciones usan esa key si viene presente, y si no, caen a la
 cuotas de Groq en vez de que todos los usuarios compartan una sola. La key
 viaja solo por header HTTPS server-side, nunca se loguea ni se devuelve al
 cliente.
+
+Mismo esquema para Claude: `localStorage("clasificador_anthropic_key")` →
+header `x-anthropic-key` → `/api/product-images`.
 
 ---
 
@@ -78,6 +91,17 @@ clasificador-productos/
 ---
 
 ## Tablas Supabase
+
+### producto_imagenes — Fotos de placas/etiquetas + OCR
+```sql
+id (uuid), codigo, url, ocr_texto, ocr_confirmado,
+codigo_confirmado, provider_usado, created_at
+```
+`codigo` es la misma clave que comparten `corrections` y `analysis_products`.
+`ocr_texto` guarda el JSON crudo que devolvió el modelo de visión;
+`codigo_confirmado` es lo que el usuario confirmó a mano — y es ese, nunca el
+`ocr_texto` crudo, el que después alimenta el tag `oem:`. Las imágenes viven
+en el bucket público `producto-fotos`.
 
 ### corrections — Correcciones aprendidas de clasificación Y enriquecimiento
 ```sql
@@ -344,6 +368,7 @@ responsabilidad de quien exporta revisar antes de importar en Tienda Nube
 | api/tn-corrections.js | GET, POST, DELETE | Correcciones de categoría TN |
 | api/rules.js | GET, POST, DELETE | Reglas dinámicas de clasificación |
 | api/published.js | GET, POST | Registro de lo ya publicado en TN (`check` / `mark`) |
+| api/product-images.js | GET, POST, PATCH, DELETE | Fotos de producto + OCR con modelo de visión |
 
 ### Patrón estándar de cada función:
 ```js
@@ -374,6 +399,9 @@ export default async function handler(req, res) {
 - Validar body antes de operar
 - Toast de éxito/error para cada acción del usuario
 - npm run build sin errores antes de cada commit
+- Para responsive, usar el hook `useIsNarrow()` y ramificar los objetos style
+  inline. `index.css` es solo para lo estructural (shell, canvas, drawer):
+  una media query no puede pisar un estilo inline.
 
 ### NUNCA:
 - Modificar classifyProduct() ni sus keywords arrays
@@ -427,6 +455,20 @@ datos, no editar código.
 7. Confirmado el import → botón "Marcar lote como publicado".
 8. Si el lote fue grande → "Exportar todas las correcciones" desde Ajustes,
    como respaldo offline.
+
+### Fotos de placas (opcional, en paralelo)
+
+Se entra por `historyDetail`, no por una pantalla aparte: se vuelve al análisis
+guardado en distintos días, a medida que cada placa está físicamente a mano.
+
+1. "Agregar fotos" en la fila del producto → cámara nativa del celular.
+2. El modelo de visión transcribe; el usuario **confirma o corrige** el código.
+   Nada cuenta como dato final sin ese paso.
+3. Al enriquecer para exportar, los `codigo_confirmado` viajan como
+   `codigos_oem` y salen como tags `oem:`.
+4. En Exportar → "Exportar imágenes del lote (.zip)": el CSV va por un lado
+   (Tienda Nube no acepta imágenes por URL adentro del CSV) y las fotos por
+   otro, nombradas por SKU, para la app de carga masiva del marketplace.
 
 > El único lugar que sigue teniendo estructura de categorías escrita a mano
 > es `ESTRUCTURA_REFERENCIA` en `buildSystemPrompt()` (`api/enrich.js`), y es

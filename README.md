@@ -48,12 +48,21 @@ En Vercel → tu proyecto → **Settings** → **Environment Variables**, config
 | Variable | Descripción |
 |----------|-------------|
 | `GROQ_API_KEY` | API key de [Groq](https://console.groq.com/keys) (gratis) |
+| `ANTHROPIC_API_KEY` | API key de [Anthropic](https://console.anthropic.com/) — OCR de las fotos de placas |
 | `SUPABASE_URL` | URL del proyecto Supabase |
 | `SUPABASE_KEY` | anon public key de Supabase |
+| `VITE_SUPABASE_URL` | igual que `SUPABASE_URL` |
+| `VITE_SUPABASE_ANON_KEY` | igual que `SUPABASE_KEY` |
 
 > Importante: las funciones serverless usan `SUPABASE_URL` y `SUPABASE_KEY`
 > **sin** prefijo `VITE_`. El prefijo `VITE_` solo aplica a variables consumidas
 > por el frontend de Vite.
+>
+> Las dos `VITE_*` son las únicas variables del frontend y existen para que el
+> celular suba las fotos directo a Supabase Storage, sin pasar por una función
+> serverless (el body de las Vercel Functions está limitado a ~4.5MB y una foto
+> de iPhone sin comprimir lo supera). Es la misma anon key pública: la seguridad
+> la da la policy del bucket.
 
 ### 2. Base de datos
 

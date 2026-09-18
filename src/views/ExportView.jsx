@@ -134,13 +134,19 @@ export default function ExportView({
     let processed = 0;
     let failedBatches = 0;
 
+    // Códigos OEM leídos de las fotos de placa y confirmados a mano. Es el
+    // codigo_confirmado el que alimenta el tag oem:, nunca el OCR crudo.
+    const oemPorCodigo = await cargarOemConfirmados(selectedProducts);
+
     for (let i = 0; i < totalBatches; i++) {
       if (enrichAbortRef.current) {
         setEnrichStatus("Cancelado por el usuario.");
         break;
       }
 
-      const batch = selectedProducts.slice(i * batchSize, (i + 1) * batchSize);
+      const batch = selectedProducts
+        .slice(i * batchSize, (i + 1) * batchSize)
+        .map(p => conOem(p, oemPorCodigo));
       setEnrichStatus(`Procesando lote ${i + 1} de ${totalBatches}...`);
 
       if (i > 0) await new Promise(r => setTimeout(r, 6000));
@@ -257,7 +263,7 @@ export default function ExportView({
       const batch = sinNivel4.slice(i * batchSize, (i + 1) * batchSize);
       if (i > 0) await new Promise(r => setTimeout(r, 6000));
       try {
-        const data = await enrichBatchWithRetry({ products: batch, tnCategories, force_nivel4: true });
+        const data = await enrichBatchWithRetry({ products: batch.map(p => conOem(p, oemPorCodigo)), tnCategories, force_nivel4: true });
         if (data.results) {
           data.results.forEach(result => {
             if (!result.categoria_tiendanube) return;
@@ -1125,4 +1131,36 @@ export default function ExportView({
 
     </div>
   );
+}
+
+/**
+ * Trae los códigos ya confirmados a mano de producto_imagenes, indexados por
+ * código de producto. Una consulta por tanda, no una por producto.
+ */
+async function cargarOemConfirmados(productos) {
+  const codigos = [...new Set(
+    (productos || []).map(p => String(p.CODIGO || p.codigo || "").trim()).filter(Boolean)
+  )];
+  const mapa = {};
+  for (let i = 0; i < codigos.length; i += 100) {
+    const tanda = codigos.slice(i, i + 100);
+    try {
+      const filas = await apiFetch(`/api/product-images?codigos=${encodeURIComponent(tanda.join(","))}`);
+      (filas || []).forEach(f => {
+        if (!f.ocr_confirmado || !f.codigo_confirmado) return;
+        if (!mapa[f.codigo]) mapa[f.codigo] = [];
+        if (!mapa[f.codigo].includes(f.codigo_confirmado)) mapa[f.codigo].push(f.codigo_confirmado);
+      });
+    } catch {
+      // Sin fotos el enriquecimiento sigue igual, solo sin tags oem: extra
+      return mapa;
+    }
+  }
+  return mapa;
+}
+
+function conOem(producto, oemPorCodigo) {
+  const codigo = String(producto.CODIGO || producto.codigo || "").trim();
+  const oem = oemPorCodigo[codigo];
+  return oem && oem.length ? { ...producto, codigos_oem: oem } : producto;
 }

@@ -235,7 +235,9 @@ REGLAS PARA TAGS ESTRUCTURADOS (van DENTRO del array "tags", sumados a las palab
 - fabricante:<fabricante> — SOLO cuando el repuesto en sí (placa, sensor, válvula) es fabricado por un tercero distinto de la marca del equipo (ej. una placa Immergas con componente Surrey/Honeywell/Zettler → "fabricante:surrey"). Si la marca del equipo y el fabricante del repuesto son la misma, no repetir el tag.
 - pieza:<tipo-de-pieza> — ej. "pieza:placa-electronica", "pieza:vaso-expansion", "pieza:forzador"
 - medida:<medida> — solo si hay medida física relevante para búsqueda (ej. "medida:3-4", "medida:76mm")
-- oem:<codigo> — código de fabricante/OEM tal cual figura en el producto (ej. "oem:btg12"), uno por código
+- oem:<codigo> — código de fabricante/OEM tal cual figura en el producto (ej. "oem:btg12"), uno por código.
+  Si el producto trae "codigos_oem_confirmados", emitir un tag oem: por cada uno, tal cual vienen: son códigos
+  leídos de la placa física y confirmados a mano, así que mandan sobre cualquier código que infieras del texto.
 - Si un dato no aplica o no se puede inferir con confianza, omitir ese tag — nunca inventar marca, modelo u OEM.
 - Todos en minúsculas, sin acentos, guiones en vez de espacios (mismo criterio que "slug").
 
@@ -354,6 +356,9 @@ export default async function handler(req, res) {
       sub_rubro:     p['SUB RUBRO']  || p.sub_rubro     || '',
       proveedor:     p.PROVEEDOR     || p.proveedor     || '',
       clasificacion: p._class?.classification || p.clasificacion || '',
+      // Códigos OEM leídos de la foto de la placa y CONFIRMADOS a mano por el
+      // usuario (producto_imagenes.codigo_confirmado). Nunca el OCR crudo.
+      codigos_oem_confirmados: Array.isArray(p.codigos_oem) ? p.codigos_oem : [],
     })),
     null, 2
   )
