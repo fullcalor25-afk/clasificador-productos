@@ -211,10 +211,10 @@ export default function HistoryDetailView({
           placeholder="🔍 Buscar en este historial..."
           value={searchTerm}
           onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
-          style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", flex: 1 }}
+          style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", flex: 1, minWidth: 180 }}
         />
 
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {["ALL", "REPUESTO", "ACCESORIO", "PRODUCTO_COMPLETO", "SERVICIO", "OTRO"].map(f => {
             const isAct = filter === f;
             const lbl = f === "ALL" ? "Todos" : CLS[f]?.label || f;

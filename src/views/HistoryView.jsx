@@ -104,7 +104,7 @@ export default function HistoryView({
           style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", flex: 1, minWidth: 0 }}
         />
 
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {[
             { id: "ALL", label: "Cualquier fecha" },
             { id: "TODAY", label: "Hoy" },
@@ -189,7 +189,7 @@ export default function HistoryView({
                   </div>
                   
                   {/* Actions Dropdown / row */}
-                  <div style={{ display: "flex", gap: 4 }}>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                     <button
                       onClick={() => onLoadDetail(a.id)}
                       style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.accentBg, color: C.accent, fontSize: 11, fontWeight: 600, cursor: "pointer" }}

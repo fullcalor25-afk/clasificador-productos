@@ -130,7 +130,7 @@ export default function LearningView({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
             onClick={() => setShowImportModal(true)}
             style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
@@ -170,7 +170,7 @@ export default function LearningView({
           style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", flex: 1 }}
         />
 
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {["ALL", "REPUESTO", "ACCESORIO", "PRODUCTO_COMPLETO", "SERVICIO", "OTRO"].map(f => {
             const isAct = filter === f;
             const lbl = f === "ALL" ? "Todos" : CLS[f]?.label || f;

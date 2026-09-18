@@ -130,7 +130,7 @@ export default function TnLearningView({
             Correcciones manuales de categoría Tienda Nube. Se aplican automáticamente al cargar productos.
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
             onClick={handleExport}
             style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
