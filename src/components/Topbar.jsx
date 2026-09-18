@@ -1,5 +1,6 @@
 import React from "react";
 import { C } from "../constants";
+import useIsNarrow from "../hooks/useIsNarrow";
 
 export default function Topbar({
   view,
@@ -11,7 +12,9 @@ export default function Topbar({
   aiState,
   historyDetailName,
   selectedCount = 0,
+  onToggleNav,
 }) {
+  const isNarrow = useIsNarrow();
   const [exportOpen, setExportOpen] = React.useState(false);
   const dropdownRef = React.useRef(null);
 
@@ -67,7 +70,8 @@ export default function Topbar({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "0 24px",
+        gap: 8,
+        padding: isNarrow ? "0 10px" : "0 24px",
         position: "sticky",
         top: 0,
         zIndex: 100,
@@ -75,24 +79,49 @@ export default function Topbar({
       }}
     >
       {/* Breadcrumbs */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500 }}>
-        {breadcrumbs.map((crumb, idx) => (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500, minWidth: 0 }}>
+        {isNarrow && onToggleNav && (
+          <button
+            onClick={onToggleNav}
+            aria-label="Abrir menú"
+            style={{
+              width: 44,
+              height: 44,
+              marginLeft: -8,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "transparent",
+              border: "none",
+              color: C.text,
+              fontSize: 20,
+              cursor: "pointer",
+            }}
+          >
+            ☰
+          </button>
+        )}
+        {(isNarrow ? breadcrumbs.slice(-1) : breadcrumbs).map((crumb, idx, arr) => (
           <React.Fragment key={idx}>
             <span
               style={{
-                color: idx === breadcrumbs.length - 1 ? C.text : C.textDim,
-                fontWeight: idx === breadcrumbs.length - 1 ? 600 : 500,
+                color: idx === arr.length - 1 ? C.text : C.textDim,
+                fontWeight: idx === arr.length - 1 ? 600 : 500,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
             >
               {crumb}
             </span>
-            {idx < breadcrumbs.length - 1 && <span style={{ color: C.textDim }}>/</span>}
+            {idx < arr.length - 1 && <span style={{ color: C.textDim }}>/</span>}
           </React.Fragment>
         ))}
       </div>
 
       {/* Contextual Actions */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
         {/* Selection badge (visible when products are selected in table) */}
         {view === "table" && selectedCount > 0 && (
           <div style={{

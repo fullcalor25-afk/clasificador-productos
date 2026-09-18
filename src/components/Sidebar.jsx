@@ -1,8 +1,10 @@
 import React from "react";
 import { C } from "../constants";
+import useIsNarrow from "../hooks/useIsNarrow";
 
-export default function Sidebar({ view, setView, hasActiveSession, historyCount = 0, correctionsCount = 0, tnCorrectionsCount = 0 }) {
+export default function Sidebar({ view, setView, hasActiveSession, historyCount = 0, correctionsCount = 0, tnCorrectionsCount = 0, isOpen = false, onClose }) {
   const [hoveredItem, setHoveredItem] = React.useState(null);
+  const isNarrow = useIsNarrow();
 
   const sections = [
     {
@@ -40,20 +42,32 @@ export default function Sidebar({ view, setView, hasActiveSession, historyCount 
   ];
 
   return (
-    <div
-      style={{
-        width: 220,
-        background: C.surface,
-        borderRight: `1px solid ${C.border}`,
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        position: "sticky",
-        top: 0,
-        zIndex: 101,
-        flexShrink: 0,
-      }}
-    >
+    <>
+      {isNarrow && isOpen && (
+        <div className="sidebar-backdrop" onClick={onClose} />
+      )}
+      <div
+        className="sidebar-drawer"
+        style={{
+          width: 220,
+          background: C.surface,
+          borderRight: `1px solid ${C.border}`,
+          display: "flex",
+          flexDirection: "column",
+          height: "100vh",
+          flexShrink: 0,
+          // En angosto el sidebar sale del flujo y se comporta como drawer.
+          // Va inline y no por CSS porque los estilos inline del resto del
+          // componente le ganarían en especificidad a la media query.
+          position: isNarrow ? "fixed" : "sticky",
+          top: 0,
+          left: isNarrow ? 0 : undefined,
+          transform: isNarrow && !isOpen ? "translateX(-100%)" : "translateX(0)",
+          transition: isNarrow ? "transform 0.22s ease" : "none",
+          boxShadow: isNarrow && isOpen ? "0 0 24px rgba(0,0,0,0.25)" : "none",
+          zIndex: isNarrow ? 300 : 101,
+        }}
+      >
       {/* Brand Header */}
       <div
         style={{
@@ -127,6 +141,7 @@ export default function Sidebar({ view, setView, hasActiveSession, historyCount 
                     onClick={() => {
                       setView(item.id);
                       localStorage.setItem("hvac_last_view", item.id);
+                      if (isNarrow && onClose) onClose();
                     }}
                     onMouseEnter={() => setHoveredItem(item.id)}
                     onMouseLeave={() => setHoveredItem(null)}
@@ -186,7 +201,8 @@ export default function Sidebar({ view, setView, hasActiveSession, historyCount 
         }}
       >
         v2.1 · vercel.app
+        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -37,6 +37,9 @@ export default function ProductClassifier() {
   const [view, setView] = useState(() => {
     return localStorage.getItem("hvac_last_view") || "home";
   });
+
+  // Drawer del sidebar en pantalla angosta
+  const [navOpen, setNavOpen] = useState(false);
   
   // Active session products
   const [products, setProducts] = useState([]);
@@ -505,9 +508,9 @@ export default function ProductClassifier() {
   };
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: C.bg, color: C.text }}>
+    <div className="app-shell" style={{ background: C.bg, color: C.text }}>
       
-      {/* 220px Fixed Left Sidebar */}
+      {/* Sidebar de 220px; en pantalla angosta se comporta como drawer */}
       <Sidebar
         view={view}
         setView={setView}
@@ -515,6 +518,8 @@ export default function ProductClassifier() {
         historyCount={historyList.length}
         correctionsCount={correctionsList.length}
         tnCorrectionsCount={tnCorrectionsList.length}
+        isOpen={navOpen}
+        onClose={() => setNavOpen(false)}
       />
 
       {/* Main content right panel */}
@@ -543,6 +548,7 @@ export default function ProductClassifier() {
           onReset={handleResetSession}
           historyDetailName={historyDetail?.nombre}
           selectedCount={tableSelectedCount}
+          onToggleNav={() => setNavOpen(o => !o)}
           onDeleteSelected={() => {
             // This triggers the delete in TableView via tableSelectedCount → handled there
             // Topbar just shows the badge; deletion is in TableView
@@ -550,7 +556,7 @@ export default function ProductClassifier() {
         />
 
         {/* Content canvas */}
-        <div style={{ flex: 1, padding: "24px 30px" }}>
+        <div className="app-canvas">
           
           {loading && (
             <div style={{ textAlign: "center", padding: "100px 20px" }}>

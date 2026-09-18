@@ -97,3 +97,47 @@ input, textarea, select, button {
 .pulse {
   animation: pulse 1.5s infinite;
 }
+
+/* ---------------------------------------------------------------------------
+   Base responsive (spec v5, punto 9.1)
+
+   El criterio del proyecto es CSS plano: acá vive solo lo estructural (shell,
+   canvas, drawer del sidebar). El responsive por vista se resuelve con el hook
+   useIsNarrow(), porque los estilos inline que usa toda la app le ganan en
+   especificidad a cualquier media query.
+   --------------------------------------------------------------------------- */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+}
+
+.app-canvas {
+  flex: 1;
+  padding: 24px 30px;
+  min-width: 0; /* sin esto, una tabla ancha estira el flex item y rompe la página */
+}
+
+/* El drawer sólo se renderiza en angosto, desde el propio componente */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 299;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+@media (max-width: 700px) {
+  .app-canvas {
+    padding: 16px 14px;
+  }
+
+  /* Abajo de 16px iOS hace zoom automático al enfocar un campo */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
