@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from "react";
 import { C, CLS } from "../constants";
-import { getProductPrice, slugify, getCategoriaTN, buildCategoriaTN, exportTiendaNubeCSV, fetchWithTimeout, apiFetch } from "../utils";
+import { getProductPrice, slugify, getCategoriaTN, buildCategoriaTN, exportTiendaNubeCSV, exportImagenesZip, fetchWithTimeout, apiFetch } from "../utils";
+import useIsNarrow from "../hooks/useIsNarrow";
 
 const GROQ_KEY_STORAGE = "clasificador_groq_key";
 
@@ -53,6 +54,7 @@ export default function ExportView({
   loadTnCategories = null,
   toast = null,
 }) {
+  const isNarrow = useIsNarrow();
   const [step, setStep] = useState(1);
   const [selectedIds, setSelectedIds] = useState(() => {
     // Smart preselection: REPUESTO and ACCESORIO by default
@@ -279,6 +281,26 @@ export default function ExportView({
       toast?.error?.(`⚠️ ${failedBatches} de ${totalBatches} lote(s) no se pudieron completar.`);
     } else {
       toast?.success?.("✅ nivel4 completado en todos los productos.");
+    }
+  };
+
+  // Descarga de las fotos del lote como .zip, para la app de carga masiva de
+  // imágenes de Tienda Nube (el CSV de productos no acepta imágenes por URL).
+  const [zipProgress, setZipProgress] = useState(null);
+
+  const handleDescargarZip = async () => {
+    setZipProgress({ hechas: 0, total: 0 });
+    try {
+      const total = await exportImagenesZip(selectedProducts, (hechas, t) => setZipProgress({ hechas, total: t }));
+      if (total === 0) {
+        toast?.info?.("Ninguno de los productos de este lote tiene fotos cargadas todavía.");
+      } else {
+        toast?.success?.(`✅ ${total} ${total === 1 ? "imagen" : "imágenes"} en el .zip.`);
+      }
+    } catch (e) {
+      toast?.error?.(`No se pudo armar el .zip: ${e.message}`);
+    } finally {
+      setZipProgress(null);
     }
   };
 
@@ -818,9 +840,19 @@ export default function ExportView({
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 24 }}>
                 <button
                   onClick={handleDownloadClick}
-                  style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: C.success, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 6px -1px rgba(16,185,129,0.2)" }}
+                  style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: C.success, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 6px -1px rgba(16,185,129,0.2)", width: isNarrow ? "100%" : undefined }}
                 >
                   📥 Descargar CSV Tienda Nube (24 columnas)
+                </button>
+                <button
+                  onClick={handleDescargarZip}
+                  disabled={!!zipProgress}
+                  title="Tienda Nube no acepta imágenes por URL en el CSV: las fotos van aparte, nombradas por SKU, para la app de carga masiva del marketplace."
+                  style={{ padding: "12px 24px", borderRadius: 10, border: `1px solid ${C.accent}`, background: C.accentBg, color: C.accent, fontSize: 14, fontWeight: 700, cursor: zipProgress ? "default" : "pointer", width: isNarrow ? "100%" : undefined }}
+                >
+                  {zipProgress
+                    ? (zipProgress.total ? `Armando .zip ${zipProgress.hechas}/${zipProgress.total}...` : "Buscando fotos...")
+                    : "🖼️ Exportar imágenes del lote (.zip)"}
                 </button>
                 <button
                   onClick={handleMarcarPublicado}

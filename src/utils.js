@@ -497,3 +497,79 @@ export function exportHistoryTiendaNubeCSV(histProductos) {
   }));
   exportTiendaNubeCSV(mapped);
 }
+
+/**
+ * Exporta las fotos del lote como .zip, nombradas por SKU.
+ *
+ * Tienda Nube no soporta cargar imágenes por URL dentro del CSV de productos:
+ * hace falta una app del marketplace que matchee las fotos por SKU o nombre de
+ * archivo. Por eso el export se parte en dos archivos independientes — el CSV
+ * sigue siendo solo texto y las imágenes viajan en este zip.
+ *
+ * No se genera .rar: es un formato propietario que no se puede armar del lado
+ * del browser.
+ *
+ * @param {Array}    productos  los productos del export actual
+ * @param {Function} onProgress (hechas, total) para el contador en pantalla
+ * @returns {number} cuántas imágenes entraron en el zip
+ */
+export async function exportImagenesZip(productos, onProgress) {
+  const { default: JSZip } = await import("jszip");
+
+  const codigos = [...new Set(
+    (productos || []).map(p => String(p.CODIGO || p.codigo || "").trim()).filter(Boolean)
+  )];
+  if (!codigos.length) return 0;
+
+  // Las fotos se piden en tandas, no una consulta por producto
+  const porCodigo = {};
+  for (let i = 0; i < codigos.length; i += 100) {
+    const tanda = codigos.slice(i, i + 100);
+    const filas = await apiFetch(`/api/product-images?codigos=${encodeURIComponent(tanda.join(","))}`);
+    (filas || []).forEach(f => {
+      if (!porCodigo[f.codigo]) porCodigo[f.codigo] = [];
+      porCodigo[f.codigo].push(f);
+    });
+  }
+
+  const pendientes = [];
+  Object.keys(porCodigo).forEach(codigo => {
+    const fotos = porCodigo[codigo];
+    const base = codigo.replace(/[^a-zA-Z0-9._-]/g, "-");
+    fotos.forEach((foto, idx) => {
+      const ext = (foto.url.split("?")[0].split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+      // Una sola foto → {codigo}.jpg; varias → {codigo}-1.jpg, {codigo}-2.jpg
+      const nombre = fotos.length === 1 ? `${base}.${ext}` : `${base}-${idx + 1}.${ext}`;
+      pendientes.push({ nombre, url: foto.url });
+    });
+  });
+
+  if (!pendientes.length) return 0;
+
+  const zip = new JSZip();
+  let hechas = 0;
+
+  // Secuencial a propósito: en paralelo, un lote de fotos de 4MB revienta la
+  // memoria del Safari de un iPhone.
+  for (const item of pendientes) {
+    try {
+      const res = await fetch(item.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      zip.file(item.nombre, await res.blob());
+    } catch (e) {
+      console.error("[zip] no se pudo bajar", item.nombre, e.message);
+    }
+    hechas++;
+    if (onProgress) onProgress(hechas, pendientes.length);
+  }
+
+  const blob = await zip.generateAsync({ type: "blob" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "imagenes_tiendanube.zip";
+  a.click();
+  URL.revokeObjectURL(url);
+
+  return pendientes.length;
+}
