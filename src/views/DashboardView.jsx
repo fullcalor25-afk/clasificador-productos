@@ -275,7 +275,7 @@ export default function DashboardView({
       </div>
 
       {/* Double Column Graphs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", gap: 24 }}>
         <BarChart items={rubrosWithRepuestos} max={classifiedProducts.length} title="Rubros con más repuestos detectados" color="#f59e0b" />
         {activeCategories.length > 0 && (
           <BarChart items={activeCategories} max={classifiedProducts.length} title="Top Categorías asignadas por IA" color="#10b981" />

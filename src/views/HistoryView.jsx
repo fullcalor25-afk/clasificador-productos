@@ -101,7 +101,7 @@ export default function HistoryView({
           placeholder="🔍 Buscar por nombre del análisis..."
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
-          style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", width: 220 }}
+          style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", flex: 1, minWidth: 0 }}
         />
 
         <div style={{ display: "flex", gap: 4 }}>
@@ -151,7 +151,7 @@ export default function HistoryView({
           No tenés análisis guardados en este período.
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(320px, 100%), 1fr))", gap: 16 }}>
           {filteredHistory.map(a => {
             const isComparing = compareIds.includes(a.id);
             const isRenaming = renamingId === a.id;
@@ -244,7 +244,7 @@ export default function HistoryView({
             Visualizá los cambios en la distribución y tamaño de tu catálogo entre ambos guardados.
           </p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: 14 }}>
             {[
               { label: "Total Catálogo", diff: comparisonResults.totalDiff, unit: "ítems" },
               { label: "⚙️ Repuestos", diff: comparisonResults.repuestosDiff, unit: "repuestos" },

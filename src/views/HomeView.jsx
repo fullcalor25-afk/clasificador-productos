@@ -102,7 +102,7 @@ export default function HomeView({
       )}
 
       {/* Main Grid: Recent activities & Quick shortcuts */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))", gap: 24 }}>
         
         {/* Recent analyses */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

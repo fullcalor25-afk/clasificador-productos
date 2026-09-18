@@ -185,7 +185,7 @@ export default function HistoryDetailView({
       </div>
 
       {/* Stats Summary Panel */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(140px, 100%), 1fr))", gap: 12, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14 }}>
         {[
           { label: "Total", value: historyDetail.total || 0, color: C.accent, icon: "📊" },
           { label: "Repuestos", value: historyDetail.repuestos || 0, color: "#f59e0b", icon: "⚙️" },

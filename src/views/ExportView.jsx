@@ -398,7 +398,7 @@ export default function ExportView({
       </div>
 
       {/* Stepper Header */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 20px" }}>
+      <div style={{ display: "flex", flexDirection: isNarrow ? "column" : "row", gap: 8, alignItems: isNarrow ? "flex-start" : "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: isNarrow ? "12px 14px" : "12px 20px" }}>
         {[
           { n: 1, label: "Selección de productos" },
           { n: 2, label: "Enriquecimiento IA" },
@@ -432,7 +432,7 @@ export default function ExportView({
                 </span>
                 {s.label}
               </div>
-              {i < 2 && <div style={{ flex: 1, height: 1, background: C.border }} />}
+              {i < 2 && !isNarrow && <div style={{ flex: 1, height: 1, background: C.border }} />}
             </React.Fragment>
           );
         })}
@@ -690,7 +690,7 @@ export default function ExportView({
               <h4 style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 12 }}>
                 Productos enriquecidos (Edición Manual disponible):
               </h4>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))", gap: 14 }}>
                 {selectedProducts.filter(p => p._enriched).map(p => (
                   <div
                     key={p._id}

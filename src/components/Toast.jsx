@@ -30,7 +30,7 @@ export function ToastContainer({ toasts }) {
   if (!toasts || toasts.length === 0) return null;
   return (
     <div style={{
-      position: "fixed", bottom: 24, right: 24, zIndex: 9999,
+      position: "fixed", bottom: 24, right: 24, left: 24, alignItems: "flex-end", zIndex: 9999,
       display: "flex", flexDirection: "column", gap: 8,
       pointerEvents: "none",
     }}>
@@ -46,7 +46,7 @@ export function ToastContainer({ toasts }) {
               fontSize: 13, fontWeight: 500,
               boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
               display: "flex", alignItems: "center", gap: 8,
-              maxWidth: 380, pointerEvents: "auto",
+              maxWidth: "min(380px, calc(100vw - 48px))", pointerEvents: "auto",
             }}
           >
             <span>{c.icon}</span>

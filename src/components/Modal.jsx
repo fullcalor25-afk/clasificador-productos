@@ -30,6 +30,8 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 480
           padding: 28,
           width: "100%",
           maxWidth,
+          maxHeight: "calc(100vh - 40px)",
+          overflowY: "auto",
           boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
         }}
       >
