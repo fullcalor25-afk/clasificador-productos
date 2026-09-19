@@ -213,44 +213,26 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
         </label>
 
         {/* Captura.
-            Es un <label>, no un <button> con inputRef.click(): Safari de iOS se
-            niega a abrir la cámara si el input está en display:none y se lo
-            dispara por JavaScript. El label lo activa de forma nativa, sin JS,
-            y el input queda en el layout pero invisible. */}
-        <label
-          style={{
-            width: "100%",
-            minHeight: 52,
-            borderRadius: 12,
-            background: ocupado ? C.surface2 : C.accent,
-            color: ocupado ? C.textMuted : "#fff",
-            fontSize: 15,
-            fontWeight: 700,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: ocupado ? "default" : "pointer",
-            pointerEvents: ocupado ? "none" : "auto",
-            position: "relative",
-            overflow: "hidden",
-          }}
-        >
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleArchivo}
-            disabled={ocupado}
-            style={{
-              position: "absolute",
-              width: 1,
-              height: 1,
-              opacity: 0,
-              // Queda renderizado (no display:none) para que iOS lo acepte
-            }}
-          />
-          {estado === "uploading" ? "Subiendo foto..." : estado === "ocr" ? "Leyendo el código..." : "📷 Agregar foto"}
-        </label>
+            El input NO se dispara por JavaScript ni se delega en un <label>:
+            va estirado por encima del botón con opacidad 0, así el dedo toca
+            el input de verdad. Es el camino con menos intermediarios, y el
+            único que no depende de cómo cada navegador reenvía el toque.
+
+            Dos vías a propósito: con capture va directo a la cámara trasera;
+            sin capture, iOS ofrece el menú (cámara o fototeca). Si una falla
+            y la otra no, el problema es el atributo capture. */}
+        <BotonCaptura
+          etiqueta={estado === "uploading" ? "Subiendo foto..." : estado === "ocr" ? "Leyendo el código..." : "📷 Sacar foto"}
+          conCamara
+          onArchivo={handleArchivo}
+          ocupado={ocupado}
+          destacado
+        />
+        <BotonCaptura
+          etiqueta="🖼️ Elegir una foto ya sacada"
+          onArchivo={handleArchivo}
+          ocupado={ocupado}
+        />
 
         {preview && (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -384,6 +366,50 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
         })}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Botón de captura. El <input type="file"> se estira encima con opacidad 0,
+ * así el toque cae sobre el input y no hay que reenviarlo desde nada.
+ */
+function BotonCaptura({ etiqueta, onArchivo, ocupado, conCamara = false, destacado = false }) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        minHeight: destacado ? 52 : 46,
+        borderRadius: 12,
+        background: ocupado ? C.surface2 : destacado ? C.accent : "transparent",
+        border: destacado ? "none" : `1px solid ${C.border}`,
+        color: ocupado ? C.textMuted : destacado ? "#fff" : C.textMuted,
+        fontSize: destacado ? 15 : 13,
+        fontWeight: 700,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      <span style={{ pointerEvents: "none" }}>{etiqueta}</span>
+      <input
+        type="file"
+        accept="image/*"
+        {...(conCamara ? { capture: "environment" } : {})}
+        onChange={onArchivo}
+        disabled={ocupado}
+        aria-label={etiqueta}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          opacity: 0,
+          cursor: ocupado ? "default" : "pointer",
+        }}
+      />
+    </div>
   );
 }
 
