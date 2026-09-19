@@ -1,10 +1,19 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { C } from "../constants";
 
 export default function Modal({ isOpen, onClose, title, children, maxWidth = 480 }) {
   if (!isOpen) return null;
 
-  return (
+  // El modal se monta en <body>, no donde se lo declara.
+  //
+  // Sin esto, un ancestro con transform/filter/backdrop-filter pasa a ser el
+  // bloque contenedor de los position:fixed que tiene adentro (es lo que manda
+  // la spec, no una rareza). `.fade-in` deja justamente un transform fijado por
+  // su animation-fill-mode: forwards, así que el overlay del modal se dimensionaba
+  // contra la lista entera de productos — 11.699px de alto con 50 filas — y el
+  // card terminaba a 5.728px del tope, varias pantallas más abajo.
+  return createPortal(
     <div
       style={{
         position: "fixed",
@@ -67,6 +76,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 480
         </div>
         <div>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
