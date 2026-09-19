@@ -49,7 +49,6 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
   const [borradores, setBorradores] = useState({}); // id → texto editado del código
   const [ocupadoId, setOcupadoId] = useState(null);
 
-  const inputRef = useRef(null);
   const previewRef = useRef(null);
 
   useEffect(() => {
@@ -213,32 +212,45 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
           </span>
         </label>
 
-        {/* Captura */}
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={handleArchivo}
-          style={{ display: "none" }}
-        />
-        <button
-          onClick={() => inputRef.current?.click()}
-          disabled={ocupado}
+        {/* Captura.
+            Es un <label>, no un <button> con inputRef.click(): Safari de iOS se
+            niega a abrir la cámara si el input está en display:none y se lo
+            dispara por JavaScript. El label lo activa de forma nativa, sin JS,
+            y el input queda en el layout pero invisible. */}
+        <label
           style={{
             width: "100%",
             minHeight: 52,
             borderRadius: 12,
-            border: "none",
             background: ocupado ? C.surface2 : C.accent,
             color: ocupado ? C.textMuted : "#fff",
             fontSize: 15,
             fontWeight: 700,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             cursor: ocupado ? "default" : "pointer",
+            pointerEvents: ocupado ? "none" : "auto",
+            position: "relative",
+            overflow: "hidden",
           }}
         >
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleArchivo}
+            disabled={ocupado}
+            style={{
+              position: "absolute",
+              width: 1,
+              height: 1,
+              opacity: 0,
+              // Queda renderizado (no display:none) para que iOS lo acepte
+            }}
+          />
           {estado === "uploading" ? "Subiendo foto..." : estado === "ocr" ? "Leyendo el código..." : "📷 Agregar foto"}
-        </button>
+        </label>
 
         {preview && (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
