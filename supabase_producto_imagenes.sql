@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS producto_imagenes (
   ocr_texto         TEXT,
   ocr_confirmado    BOOLEAN DEFAULT FALSE,
   codigo_confirmado TEXT,
-  provider_usado    TEXT DEFAULT 'claude',
+  provider_usado    TEXT DEFAULT 'gemini',
   created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
