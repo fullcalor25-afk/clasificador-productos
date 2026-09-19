@@ -22,22 +22,29 @@ export function contarSinConfirmar(fotos = []) {
   return fotos.filter(f => !f.ocr_confirmado).length;
 }
 
+// Solo Groq acepta key personal desde el browser. La de Gemini es server-side:
+// nunca se guarda en el cliente ni viaja en un header.
 function headersDeIA(provider) {
   const h = {};
   const groq = localStorage.getItem("clasificador_groq_key");
-  const anthropic = localStorage.getItem("clasificador_anthropic_key");
   if (provider === "groq" && groq) h["x-groq-key"] = groq;
-  if (provider === "claude" && anthropic) h["x-anthropic-key"] = anthropic;
   return h;
 }
+
+const NOMBRE_PROVIDER = { gemini: "Gemini", groq: "Groq" };
 
 export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = [], onClose, onFotosChange, toast }) {
   const codigo = producto?.codigo || producto?.CODIGO || "";
 
   const [fotos, setFotos] = useState(fotosIniciales);
-  const [provider, setProvider] = useState(() => localStorage.getItem(PROVIDER_KEY) || "claude");
+  const [provider, setProvider] = useState(() => {
+    // "claude" es el valor que guardaba la v5; quien lo tenga pasa a Gemini.
+    const guardado = localStorage.getItem(PROVIDER_KEY);
+    return guardado === "groq" ? "groq" : "gemini";
+  });
   const [estado, setEstado] = useState("idle"); // idle | uploading | ocr | error
   const [errorMsg, setErrorMsg] = useState(null);
+  const [errorOtro, setErrorOtro] = useState(null); // proveedor a ofrecer si falló uno
   const [preview, setPreview] = useState(null);
   const [borradores, setBorradores] = useState({}); // id → texto editado del código
   const [ocupadoId, setOcupadoId] = useState(null);
@@ -69,6 +76,8 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
     localStorage.setItem(PROVIDER_KEY, p);
   };
 
+  const otroProveedor = p => (p === "groq" ? "gemini" : "groq");
+
   // ── Captura ────────────────────────────────────────────────────────────────
   const handleArchivo = async e => {
     const file = e.target.files?.[0];
@@ -89,6 +98,7 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
     }
 
     setErrorMsg(null);
+    setErrorOtro(null);
     previewRef.current = URL.createObjectURL(file);
     setPreview(previewRef.current);
 
@@ -110,6 +120,7 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
       toast?.success("Foto transcripta. Revisá el código antes de confirmar.");
     } catch (err) {
       setErrorMsg(err.message);
+      setErrorOtro(err.payload?.otro_proveedor || null);
       setEstado("error");
       limpiarPreview();
     }
@@ -194,11 +205,11 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
           <input
             type="checkbox"
             checked={provider === "groq"}
-            onChange={e => cambiarProvider(e.target.checked ? "groq" : "claude")}
+            onChange={e => cambiarProvider(e.target.checked ? "groq" : "gemini")}
             style={{ width: 18, height: 18 }}
           />
           <span>
-            Modo rápido (Groq) — por defecto transcribe <strong>Claude</strong>, que lee mejor las placas gastadas.
+            Modo rápido (Groq) — por defecto transcribe <strong>Gemini</strong>, que lee mejor las placas gastadas.
           </span>
         </label>
 
@@ -239,8 +250,16 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
         )}
 
         {estado === "error" && errorMsg && (
-          <div style={{ padding: 12, borderRadius: 10, background: C.dangerBg, border: `1px solid ${C.danger}40`, color: C.danger, fontSize: 12 }}>
-            {errorMsg}
+          <div style={{ padding: 12, borderRadius: 10, background: C.dangerBg, border: `1px solid ${C.danger}40`, color: C.danger, fontSize: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            <span>{errorMsg}</span>
+            {errorOtro && NOMBRE_PROVIDER[errorOtro] && (
+              <button
+                onClick={() => { cambiarProvider(errorOtro); setErrorMsg(null); setErrorOtro(null); setEstado("idle"); }}
+                style={btn(C.accent, true)}
+              >
+                Cambiar a {NOMBRE_PROVIDER[errorOtro]} y sacar la foto de nuevo
+              </button>
+            )}
           </div>
         )}
 
@@ -303,7 +322,7 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
                 )}
                 {ocr?.confianza && (
                   <div style={{ fontSize: 11, color: C.textDim }}>
-                    Confianza: {ocr.confianza} · leído por {foto.provider_usado === "groq" ? "Groq" : "Claude"}
+                    Confianza: {ocr.confianza} · leído por {NOMBRE_PROVIDER[foto.provider_usado] || foto.provider_usado}
                   </div>
                 )}
 
@@ -334,9 +353,13 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
                   <button onClick={() => reintentar(foto, provider)} disabled={trabajando} style={btn(C.textMuted, false)}>
                     ↻ Reintentar
                   </button>
-                  {dudosa && foto.provider_usado === "groq" && (
-                    <button onClick={() => reintentar(foto, "claude")} disabled={trabajando} style={btn(C.accent, false)}>
-                      ✨ Reintentar con Claude
+                  {dudosa && (
+                    <button
+                      onClick={() => reintentar(foto, otroProveedor(foto.provider_usado))}
+                      disabled={trabajando}
+                      style={btn(C.accent, false)}
+                    >
+                      ✨ Reintentar con {NOMBRE_PROVIDER[otroProveedor(foto.provider_usado)]}
                     </button>
                   )}
                   <button onClick={() => descartar(foto)} disabled={trabajando} style={btn(C.danger, false)}>

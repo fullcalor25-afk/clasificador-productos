@@ -340,7 +340,9 @@ export async function apiFetch(url, options = {}) {
     const data = await res.json().catch(() => ({ error: "Respuesta inválida del servidor" }));
     if (!res.ok) {
       const msg = data.error || data.message || `Error ${res.status}`;
-      throw new Error(msg);
+      // El cuerpo del error viaja adjunto: algunos endpoints mandan datos extra
+      // (ej. qué proveedor de IA falló) que la UI necesita para ofrecer una salida.
+      throw Object.assign(new Error(msg), { payload: data, status: res.status });
     }
     return data;
   } catch (err) {

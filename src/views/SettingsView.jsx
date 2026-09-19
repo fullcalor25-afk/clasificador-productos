@@ -18,10 +18,6 @@ export default function SettingsView({
     return localStorage.getItem("clasificador_groq_key") || "";
   });
 
-  // Anthropic override key (OCR de fotos de placas)
-  const [anthropicKey, setAnthropicKey] = useState(() => {
-    return localStorage.getItem("clasificador_anthropic_key") || "";
-  });
 
   // e-commerce export defaults
   const [stockDef, setStockDef] = useState(() => {
@@ -83,12 +79,6 @@ export default function SettingsView({
       localStorage.removeItem("clasificador_groq_key");
     }
 
-    if (anthropicKey.trim()) {
-      localStorage.setItem("clasificador_anthropic_key", anthropicKey.trim());
-    } else {
-      localStorage.removeItem("clasificador_anthropic_key");
-    }
-
     localStorage.setItem("tn_default_stock", stockDef);
     localStorage.setItem("tn_default_currency", currencyDef);
     localStorage.setItem("tn_show_no_price", showNoPrice);
@@ -145,23 +135,6 @@ export default function SettingsView({
           placeholder="gsk_..."
           value={groqKey}
           onChange={e => setGroqKey(e.target.value)}
-          style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13 }}
-        />
-      </div>
-
-      {/* Anthropic API Key Panel */}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
-          🔑 Clave de API Personalizada (Claude — OCR de fotos)
-        </h3>
-        <p style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5 }}>
-          Claude es el que transcribe las fotos de placas. Por defecto usa la clave configurada en el servidor; si querés usar la tuya, ingresala acá y queda guardada en tu navegador.
-        </p>
-        <input
-          type="password"
-          placeholder="sk-ant-..."
-          value={anthropicKey}
-          onChange={e => setAnthropicKey(e.target.value)}
           style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13 }}
         />
       </div>
