@@ -1,4 +1,4 @@
-// Fotos de placas/etiquetas de producto + OCR con modelo de visión (spec v5).
+// Fotos de placas/etiquetas de producto + OCR con modelo de visión (spec v6).
 //
 // La imagen NO pasa por acá: el celular la sube directo a Supabase Storage y
 // esta función solo recibe la URL pública ya subida. Eso evita el límite de
@@ -7,22 +7,29 @@
 // Regla de base: la IA transcribe, el usuario confirma. Nada queda como dato
 // final sin el PATCH de confirmación.
 
-import Anthropic from '@anthropic-ai/sdk'
 import { logRequest, supabaseQuery } from './_helpers.js'
 
 // Los IDs se verifican contra los docs/API en vivo al implementar, no de memoria.
-// Claude: https://platform.claude.com/docs/en/about-claude/models/overview
-const CLAUDE_MODEL = 'claude-opus-5'
+// Gemini (proveedor por defecto): ai.google.dev/gemini-api/docs/models
+const GEMINI_MODEL = 'gemini-3.8-flash'
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 // Groq: los modelos de visión llama-4 fueron deprecados en 2026; el sustituto
 // multimodal es qwen3.6-27b (Preview). Verificar con GET /openai/v1/models.
+// Ya van dos deprecaciones de visión en Groq en poco tiempo: asumir que esta
+// pieza se puede caer de nuevo, y por eso los errores dicen de qué proveedor son.
 const GROQ_MODEL = 'qwen/qwen3.6-27b'
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+
+// Gemini acepta ~20MB de request inline y base64 infla ~33%, así que el archivo
+// crudo no puede pasar de ~14MB. Una foto de iPhone son 3-5MB; el bucket admite
+// hasta 25MB, así que el caso existe aunque en la práctica no se toque.
+const GEMINI_MAX_BYTES = 14 * 1024 * 1024
 
 const BUCKET = 'producto-fotos'
 
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-groq-key, x-anthropic-key')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-groq-key')
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
 }
 
@@ -70,34 +77,61 @@ function parseOcrJson(raw) {
   }
 }
 
-async function ocrConClaude(url, apiKey) {
-  const client = new Anthropic({ apiKey })
-  const message = await client.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 4096,
-    // Transcribir no necesita razonamiento profundo; effort bajo abarata y acelera.
-    output_config: { effort: 'low' },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'url', url } },
-          { type: 'text', text: OCR_PROMPT },
-        ],
-      },
-    ],
-  })
+// A diferencia de Groq, Gemini no descarga URLs arbitrarias: hay que bajar la
+// imagen del Storage público y mandarla inline en base64.
+async function ocrConGemini(url, apiKey) {
+  const img = await fetch(url)
+  if (!img.ok) throw new Error('No se pudo descargar la foto desde Storage (' + img.status + ')')
 
-  if (message.stop_reason === 'refusal') {
-    throw new Error('El modelo no pudo procesar esta imagen')
+  const buf = Buffer.from(await img.arrayBuffer())
+  if (buf.length > GEMINI_MAX_BYTES) {
+    throw new Error('La foto es demasiado grande para Gemini (' + Math.round(buf.length / 1048576) + 'MB). Sacala de nuevo con menos resolución.')
   }
-  const texto = message.content
-    .filter(b => b.type === 'text')
-    .map(b => b.text)
+  const mimeType = img.headers.get('content-type') || 'image/jpeg'
+
+  const r = await fetch(
+    GEMINI_URL + '/' + GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(apiKey),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inline_data: { mime_type: mimeType, data: buf.toString('base64') } },
+              { text: OCR_PROMPT },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+        },
+      }),
+    }
+  )
+
+  if (!r.ok) {
+    const txt = await r.text().catch(() => '')
+    console.error('[product-images gemini]', r.status, txt.substring(0, 300))
+    if (r.status === 401 || r.status === 403) {
+      throw Object.assign(new Error('Gemini API key invalida o sin permisos'), { status: 401 })
+    }
+    throw new Error('Error del modelo de vision de Gemini (' + r.status + ')')
+  }
+
+  const data = await r.json()
+  const texto = (data?.candidates?.[0]?.content?.parts || [])
+    .map(p => p.text)
+    .filter(Boolean)
     .join('\n')
   return parseOcrJson(texto)
 }
 
+// Se manda UNA sola imagen por request (una foto = una llamada), así que el caso
+// de "demasiadas imágenes" que la doc de Groq describe de forma inconsistente no
+// se puede dar acá. No hace falta degradar nada.
 async function ocrConGroq(url, apiKey) {
   const r = await fetch(GROQ_URL, {
     method: 'POST',
@@ -189,7 +223,8 @@ export default async function handler(req, res) {
 
     const codigo = (body.codigo || '').trim()
     const url = (body.url || '').trim()
-    const provider = body.provider === 'groq' ? 'groq' : 'claude'
+    const provider = body.provider === 'groq' ? 'groq' : 'gemini'
+    const otro = provider === 'groq' ? 'gemini' : 'groq'
     if (!codigo) return res.status(400).json({ error: 'Falta el codigo del producto' })
     if (!url) return res.status(400).json({ error: 'Falta la URL de la imagen' })
 
@@ -200,17 +235,29 @@ export default async function handler(req, res) {
       if (provider === 'groq') {
         const userKey = req.headers['x-groq-key']
         const apiKey = (typeof userKey === 'string' && userKey.trim()) ? userKey.trim() : process.env.GROQ_API_KEY
-        if (!apiKey) return res.status(500).json({ error: 'GROQ_API_KEY no configurada' })
+        if (!apiKey) {
+          return res.status(500).json({ error: 'GROQ_API_KEY no configurada', provider_fallo: 'groq', otro_proveedor: otro })
+        }
         ocr = await ocrConGroq(url, apiKey)
       } else {
-        const userKey = req.headers['x-anthropic-key']
-        const apiKey = (typeof userKey === 'string' && userKey.trim()) ? userKey.trim() : process.env.ANTHROPIC_API_KEY
-        if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY no configurada' })
-        ocr = await ocrConClaude(url, apiKey)
+        // La key de Gemini es solo server-side: no se acepta override por header
+        // ni se guarda en el browser, a diferencia de la de Groq.
+        const apiKey = process.env.GEMINI_API_KEY
+        if (!apiKey) {
+          return res.status(500).json({ error: 'GEMINI_API_KEY no configurada', provider_fallo: 'gemini', otro_proveedor: otro })
+        }
+        ocr = await ocrConGemini(url, apiKey)
       }
     } catch (e) {
       console.error('[product-images ocr]', e.message)
-      return res.status(e.status || 502).json({ error: 'Error de IA: ' + e.message })
+      // Se informa QUÉ proveedor falló para que la UI pueda ofrecer el otro, en
+      // vez de dejar al usuario sin poder cargar la foto. Con dos deprecaciones
+      // de visión en Groq en un año, esto no es hipotético.
+      return res.status(e.status || 502).json({
+        error: 'Error de IA: ' + e.message,
+        provider_fallo: provider,
+        otro_proveedor: otro,
+      })
     }
 
     try {
