@@ -48,7 +48,7 @@ En Vercel → tu proyecto → **Settings** → **Environment Variables**, config
 | Variable | Descripción |
 |----------|-------------|
 | `GROQ_API_KEY` | API key de [Groq](https://console.groq.com/keys) (gratis) |
-| `ANTHROPIC_API_KEY` | API key de [Anthropic](https://console.anthropic.com/) — OCR de las fotos de placas |
+| `GEMINI_API_KEY` | API key de [Gemini](https://aistudio.google.com/apikey) — OCR de las fotos de placas |
 | `SUPABASE_URL` | URL del proyecto Supabase |
 | `SUPABASE_KEY` | anon public key de Supabase |
 | `VITE_SUPABASE_URL` | igual que `SUPABASE_URL` |

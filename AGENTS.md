@@ -22,6 +22,7 @@ y con ficha completa lista para importar.
 | Base de datos | Supabase (PostgreSQL via REST API) |
 | IA clasificación | Groq API (openai/gpt-oss-120b / openai/gpt-oss-20b) |
 | IA enriquecimiento | Groq API (mismo modelo) |
+| IA visión / OCR de fotos | Gemini (`gemini-3.8-flash`) por defecto, Groq (`qwen/qwen3.6-27b`) como modo rápido |
 | Deploy | Vercel (auto-deploy desde GitHub) |
 | Repo | GitHub (fullcalor25-afk/clasificador-productos) |
 
@@ -31,7 +32,7 @@ y con ficha completa lista para importar.
 
 ```
 GROQ_API_KEY              API key de Groq
-ANTHROPIC_API_KEY         API key de Anthropic (OCR de fotos de placas)
+GEMINI_API_KEY            API key de Gemini (OCR de fotos de placas)
 SUPABASE_URL              URL del proyecto Supabase
 SUPABASE_KEY              anon public key de Supabase
 
@@ -59,8 +60,10 @@ cuotas de Groq en vez de que todos los usuarios compartan una sola. La key
 viaja solo por header HTTPS server-side, nunca se loguea ni se devuelve al
 cliente.
 
-Mismo esquema para Claude: `localStorage("clasificador_anthropic_key")` →
-header `x-anthropic-key` → `/api/product-images`.
+`GEMINI_API_KEY` NO sigue ese esquema a propósito: es solo server-side, sin
+override por header ni campo en Ajustes. La key de Gemini nunca llega al
+browser. El usuario puede elegir el proveedor de OCR (Gemini o Groq), no la
+credencial con la que corre Gemini.
 
 ---
 
@@ -98,6 +101,7 @@ id (uuid), codigo, url, ocr_texto, ocr_confirmado,
 codigo_confirmado, provider_usado, created_at
 ```
 `codigo` es la misma clave que comparten `corrections` y `analysis_products`.
+`provider_usado` guarda quién leyó esa foto (`gemini` o `groq`).
 `ocr_texto` guarda el JSON crudo que devolvió el modelo de visión;
 `codigo_confirmado` es lo que el usuario confirmó a mano — y es ese, nunca el
 `ocr_texto` crudo, el que después alimenta el tag `oem:`. Las imágenes viven
@@ -368,7 +372,7 @@ responsabilidad de quien exporta revisar antes de importar en Tienda Nube
 | api/tn-corrections.js | GET, POST, DELETE | Correcciones de categoría TN |
 | api/rules.js | GET, POST, DELETE | Reglas dinámicas de clasificación |
 | api/published.js | GET, POST | Registro de lo ya publicado en TN (`check` / `mark`) |
-| api/product-images.js | GET, POST, PATCH, DELETE | Fotos de producto + OCR con modelo de visión |
+| api/product-images.js | GET, POST, PATCH, DELETE | Fotos de producto + OCR con modelo de visión (Gemini / Groq) |
 
 ### Patrón estándar de cada función:
 ```js
@@ -463,7 +467,10 @@ guardado en distintos días, a medida que cada placa está físicamente a mano.
 
 1. "Agregar fotos" en la fila del producto → cámara nativa del celular.
 2. El modelo de visión transcribe; el usuario **confirma o corrige** el código.
-   Nada cuenta como dato final sin ese paso.
+   Nada cuenta como dato final sin ese paso. Por defecto lee Gemini; el switch
+   "Modo rápido (Groq)" cambia de proveedor y se recuerda en `localStorage`.
+   Si un proveedor falla, la respuesta trae `provider_fallo` y la UI ofrece el
+   otro — Groq ya deprecó sus modelos de visión dos veces en un año.
 3. Al enriquecer para exportar, los `codigo_confirmado` viajan como
    `codigos_oem` y salen como tags `oem:`.
 4. En Exportar → "Exportar imágenes del lote (.zip)": el CSV va por un lado
