@@ -22,7 +22,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 480
       }}
     >
       <div
-        className="fade-in"
+        className="fade-in modal-card"
         style={{
           background: C.surface,
           borderRadius: 16,
@@ -30,7 +30,12 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 480
           padding: 28,
           width: "100%",
           maxWidth,
-          maxHeight: "calc(100vh - 40px)",
+          // Sin esto, al terminar de scrollear el modal el scroll se contagia
+          // a la página de atrás — molesto en iOS.
+          overscrollBehavior: "contain",
+          // El alto máximo vive en .modal-card (index.css): necesita la doble
+          // declaración vh/dvh como fallback, y un style inline no puede
+          // declarar la misma propiedad dos veces.
           overflowY: "auto",
           boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
         }}

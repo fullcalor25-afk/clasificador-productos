@@ -141,3 +141,13 @@ input, textarea, select, button {
     font-size: 16px;
   }
 }
+
+/* Alto máximo del card de Modal.
+   En iOS Safari 100vh incluye lo que tapan las barras del navegador, así que
+   el card queda más alto que la pantalla real y el final del contenido se
+   esconde bajo el chrome. dvh sí mide el alto visible; la primera
+   declaración queda como respaldo para navegadores que no lo soporten. */
+.modal-card {
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+}

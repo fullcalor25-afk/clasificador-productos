@@ -194,23 +194,15 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
       title={`📷 Fotos · ${codigo || "sin código"}`}
       maxWidth={560}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 14, maxHeight: "70vh", overflowY: "auto" }}>
-        <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5 }}>
+      {/* Un solo contenedor con scroll: el del card de Modal. Anidar scrollers
+          acá adentro hacía que en iOS el scroll se trabe entre capas. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div
+          title={producto?.producto || producto?.PRODUCTO || ""}
+          style={{ fontSize: 12, color: C.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
           {producto?.producto || producto?.PRODUCTO || ""}
         </div>
-
-        {/* Selector de proveedor */}
-        <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: C.textMuted, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={provider === "groq"}
-            onChange={e => cambiarProvider(e.target.checked ? "groq" : "gemini")}
-            style={{ width: 18, height: 18 }}
-          />
-          <span>
-            Modo rápido (Groq) — por defecto transcribe <strong>Gemini</strong>, que lee mejor las placas gastadas.
-          </span>
-        </label>
 
         {/* Captura.
             El input NO se dispara por JavaScript ni se delega en un <label>:
@@ -233,6 +225,22 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
           onArchivo={handleArchivo}
           ocupado={ocupado}
         />
+
+        {/* La preferencia de proveedor va DESPUÉS de la acción principal: se
+            toca una vez cada tanto, y arriba empujaba los botones fuera de
+            pantalla en un iPhone. */}
+        <label
+          title="Gemini lee mejor las placas gastadas; Groq responde más rápido."
+          style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: C.textMuted, cursor: "pointer" }}
+        >
+          <input
+            type="checkbox"
+            checked={provider === "groq"}
+            onChange={e => cambiarProvider(e.target.checked ? "groq" : "gemini")}
+            style={{ width: 18, height: 18, flexShrink: 0 }}
+          />
+          <span>Modo rápido (Groq) — por defecto lee Gemini</span>
+        </label>
 
         {preview && (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
