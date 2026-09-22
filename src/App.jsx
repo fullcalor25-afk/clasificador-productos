@@ -596,6 +596,7 @@ export default function ProductClassifier() {
               hasActiveSession={classified.length > 0}
               correctionsCount={correctionsList.length}
               toast={toast}
+              tnCategories={tnCategories}
             />
           )}
 

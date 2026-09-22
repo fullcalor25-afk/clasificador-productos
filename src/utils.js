@@ -575,3 +575,77 @@ export async function exportImagenesZip(productos, onProgress) {
 
   return pendientes.length;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Filtro por nivel3 — para trabajar el catálogo familia por familia.
+
+   Matchea contra RUBRO y SUB RUBRO, que son las categorías del PROVEEDOR, no
+   las de Tienda Nube. Es a propósito: el filtro corre antes de clasificar,
+   cuando la categoría TN todavía no existe. Y es la señal correcta — de los
+   164 productos con rubro CALDERAS, 112 no tienen la palabra "caldera" en el
+   nombre, así que filtrar por nombre perdería el 68%.
+
+   Los nombres de nivel3 salen de tiendanube_categories, nunca del código.
+   ────────────────────────────────────────────────────────────────────────── */
+
+export function normalizarTexto(txt) {
+  return (txt || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
+
+// Palabras que no aportan al match y darían falsos positivos por sí solas
+const PALABRAS_VACIAS = new Set(["y", "de", "a", "del", "la", "el", "los", "las", "para", "con"]);
+
+/**
+ * ¿Este producto pertenece a ese nivel3?
+ *
+ * Compara las palabras significativas del nombre del nivel3 contra el rubro y
+ * el sub rubro. Así "Bombas y Presurizadoras" matchea el rubro "BOMBAS", y
+ * "Salamandras" matchea "VARIOS SALAMANDRAS", sin una sola categoría escrita
+ * en el código.
+ */
+export function coincideNivel3(producto, nivel3) {
+  if (!nivel3) return true; // "Todos"
+
+  const palabras = normalizarTexto(nivel3)
+    .split(/\s+/)
+    .filter(p => p.length > 2 && !PALABRAS_VACIAS.has(p));
+  if (!palabras.length) return false;
+
+  const rubro = normalizarTexto(producto.RUBRO || producto.rubro);
+  const subRubro = normalizarTexto(producto["SUB RUBRO"] || producto.sub_rubro);
+  const donde = rubro + " " + subRubro;
+
+  return palabras.some(p => donde.includes(p));
+}
+
+export function filtrarPorNivel3(productos, nivel3) {
+  if (!nivel3) return productos || [];
+  return (productos || []).filter(p => coincideNivel3(p, nivel3));
+}
+
+/**
+ * Los nivel3 disponibles, agrupados por nivel2 y con cuántos productos del
+ * lote caen en cada uno. El conteo es lo que evita el callejón sin salida:
+ * ves "Estufas a Pellet (0)" antes de elegirlo, en vez de después.
+ */
+export function nivel3ConConteos(tnCategories, productos) {
+  const vistos = new Map(); // "nivel2|nivel3" → {nivel2, nivel3, total}
+
+  (tnCategories || []).forEach(c => {
+    if (c.activa === false || !c.nivel2 || !c.nivel3) return;
+    const clave = c.nivel2 + "|" + c.nivel3;
+    if (vistos.has(clave)) return;
+    vistos.set(clave, {
+      nivel2: c.nivel2,
+      nivel3: c.nivel3,
+      total: (productos || []).filter(p => coincideNivel3(p, c.nivel3)).length,
+    });
+  });
+
+  return [...vistos.values()].sort(
+    (a, b) => a.nivel2.localeCompare(b.nivel2) || a.nivel3.localeCompare(b.nivel3)
+  );
+}

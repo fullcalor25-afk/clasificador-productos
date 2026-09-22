@@ -1,7 +1,7 @@
 import React from "react";
 import * as XLSX from "xlsx";
 import { C } from "../constants";
-import { parseTabular } from "../utils";
+import { parseTabular, filtrarPorNivel3, nivel3ConConteos } from "../utils";
 
 function parseXLSX(file) {
   return new Promise((resolve) => {
@@ -17,25 +17,49 @@ function parseXLSX(file) {
   });
 }
 
-export default function UploadView({ onProductsLoaded, hasActiveSession, correctionsCount = 0, toast = null }) {
+export default function UploadView({ onProductsLoaded, hasActiveSession, correctionsCount = 0, toast = null, tnCategories = [] }) {
   const [pasteData, setPasteData] = React.useState("");
   const [previewProducts, setPreviewProducts] = React.useState([]);
   const [showConfirmOverwrite, setShowConfirmOverwrite] = React.useState(false);
   const fileInputRef = React.useRef(null);
   const pendingProductsRef = React.useRef([]);
 
+  // Filtro por familia: recorta el lote antes de clasificar, para trabajar
+  // el catálogo de a una categoría por vez.
+  const [nivel3Filtro, setNivel3Filtro] = React.useState("");
+  const [todosParseados, setTodosParseados] = React.useState([]);
+
+  const opcionesNivel3 = React.useMemo(
+    () => nivel3ConConteos(tnCategories, todosParseados),
+    [tnCategories, todosParseados]
+  );
+
   // Parse paste data dynamically for preview
   React.useEffect(() => {
     if (!pasteData.trim()) {
       setPreviewProducts([]);
+      setTodosParseados([]);
       return;
     }
     const parsed = parseTabular(pasteData);
+    setTodosParseados(parsed);
     setPreviewProducts(parsed.slice(0, 5));
   }, [pasteData]);
 
   const handleProductsConfirm = (loadedProducts) => {
     if (loadedProducts.length === 0) return;
+
+    // Después de cargar, antes de clasificar
+    const filtrados = filtrarPorNivel3(loadedProducts, nivel3Filtro);
+    if (nivel3Filtro && filtrados.length === 0) {
+      toast?.error(`No hay productos de "${nivel3Filtro}" en este archivo.`);
+      return;
+    }
+    if (nivel3Filtro) {
+      toast?.info?.(`Filtrado: ${filtrados.length} de ${loadedProducts.length} productos (${nivel3Filtro}).`);
+    }
+    loadedProducts = filtrados;
+
     if (hasActiveSession) {
       pendingProductsRef.current = loadedProducts;
       setShowConfirmOverwrite(true);
@@ -80,6 +104,41 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
 
   return (
     <div className="fade-in" style={{ maxWidth: 760, margin: "20px auto", display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Filtro por familia. Recorta el lote ANTES de clasificar, para poder
+          trabajar el catálogo de a una categoría por vez. Las opciones salen
+          de tiendanube_categories, nunca de una lista escrita acá. */}
+      {opcionesNivel3.length > 0 && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          <label htmlFor="filtro-nivel3" style={{ fontSize: 12, fontWeight: 700, color: C.textMuted }}>
+            Procesar productos de…
+          </label>
+          <select
+            id="filtro-nivel3"
+            value={nivel3Filtro}
+            onChange={e => setNivel3Filtro(e.target.value)}
+            style={{ width: "100%", minHeight: 44, padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 13, outline: "none" }}
+          >
+            <option value="">Todos los productos</option>
+            {[...new Set(opcionesNivel3.map(o => o.nivel2))].map(nivel2 => (
+              // Agrupado por nivel2 porque "Calefones" existe bajo dos de
+              // ellos: en una lista plana serían dos opciones idénticas.
+              <optgroup key={nivel2} label={nivel2}>
+                {opcionesNivel3.filter(o => o.nivel2 === nivel2).map(o => (
+                  <option key={nivel2 + o.nivel3} value={o.nivel3}>
+                    {o.nivel3}{todosParseados.length > 0 ? ` (${o.total})` : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <div style={{ fontSize: 11, color: C.textDim, lineHeight: 1.5 }}>
+            {todosParseados.length > 0
+              ? "El número es cuántos productos de lo que pegaste caen en cada familia, según su RUBRO."
+              : "Pegá o subí los datos y acá vas a ver cuántos productos caen en cada familia."}
+          </div>
+        </div>
+      )}
+
       <div style={{ textAlign: "center", marginBottom: 12 }}>
         <span style={{ fontSize: 48, display: "block", marginBottom: 12 }}>📤</span>
         <h2 style={{ fontSize: 24, fontWeight: 700, color: C.text, marginBottom: 8 }}>

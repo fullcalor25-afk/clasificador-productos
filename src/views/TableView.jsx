@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { C, CLS, CLS_COLORS } from "../constants";
-import { buildCategoriaTN } from "../utils";
+import { buildCategoriaTN, exportCSV, filtrarPorNivel3, nivel3ConConteos } from "../utils";
 import ClassificationBadge from "../components/ClassificationBadge";
 import Pagination from "../components/Pagination";
 
@@ -21,6 +21,26 @@ export default function TableView({
   rules = [],
   toast = null,
 }) {
+  // Recorte por familia, para bajar un CSV de una sola categoría y volver a
+  // subirlo. Usa el mismo matcher que el filtro de carga.
+  const [nivel3Export, setNivel3Export] = useState("");
+
+  const opcionesNivel3 = useMemo(
+    () => nivel3ConConteos(tnCategories, classifiedProducts),
+    [tnCategories, classifiedProducts]
+  );
+
+  const handleExportFiltrados = () => {
+    const recorte = filtrarPorNivel3(classifiedProducts, nivel3Export);
+    if (recorte.length === 0) {
+      toast?.error(`No hay productos de "${nivel3Export || "esta categoría"}".`);
+      return;
+    }
+    // exportCSV, no el CSV de Tienda Nube: este es el único formato que la
+    // app puede volver a leer (conserva RUBRO y SUB RUBRO).
+    exportCSV(recorte, CLS);
+    toast?.success?.(`${recorte.length} productos exportados${nivel3Export ? ` (${nivel3Export})` : ""}.`);
+  };
   const [pageSize, setPageSize] = useState(50);
   const [sortBy, setSortBy] = useState("confidence");
   const [sortDir, setSortDir] = useState("desc");
@@ -322,6 +342,31 @@ export default function TableView({
               </button>
             );
           })}
+        </div>
+
+        {/* Exportar un recorte por familia */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <select
+            value={nivel3Export}
+            onChange={e => setNivel3Export(e.target.value)}
+            aria-label="Familia a exportar"
+            style={{ minHeight: 44, padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", cursor: "pointer" }}
+          >
+            <option value="">Todas las familias</option>
+            {[...new Set(opcionesNivel3.map(o => o.nivel2))].map(nivel2 => (
+              <optgroup key={nivel2} label={nivel2}>
+                {opcionesNivel3.filter(o => o.nivel2 === nivel2).map(o => (
+                  <option key={nivel2 + o.nivel3} value={o.nivel3}>{o.nivel3} ({o.total})</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <button
+            onClick={handleExportFiltrados}
+            style={{ minHeight: 44, padding: "7px 14px", borderRadius: 8, border: `1px solid ${C.success}`, background: `${C.success}12`, color: C.success, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+          >
+            📥 Exportar filtrados
+          </button>
         </div>
 
         {/* Dropdown Filters */}
