@@ -165,6 +165,9 @@ ${marcasPorNivel3Str}
    - MUF / FAN INDUCER → motor forzador (Refrigeración > Compresores y Motores)
    - VASO DE EXPANSIÓN / EXPANSION → pieza:vaso-expansion (Calderas > Hidráulicos)
    - VASO HIDRONEUMÁTICO / HIDRONEUMATICO → pieza:vaso-hidroneumatico (Calderas > Hidráulicos)
+     OJO: "VASO" a secas casi siempre es un portafiltro de agua ("vaso de 10\"", "vaso con filtro de
+     carbón", "vaso transparente") y va a Agua Sanitaria > Filtros de Agua, NO a Calderas. Solo tratarlo
+     como vaso de expansión o hidroneumático si el nombre dice explícitamente "EXPANSION"/"HIDRONEUMATICO".
 
 ${bloqueForzadas}
 Usá TODA esta información combinada para elegir la categoría más específica y correcta de la lista disponible.
