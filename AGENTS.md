@@ -200,6 +200,13 @@ que no falte ningún nivel3 nuevo).
 > - Dispositivos de Protección → Materiales de Instalación > Protección Eléctrica
 > - Termostatos → Materiales de Instalación > Termostatos Ambiente
 
+> **Nota sobre Hidráulicos (Calderas):** Vaso de Expansión y Vaso Hidroneumático
+> van a la MISMA categoría (Calefacción > Calderas > Hidráulicos), pero se
+> distinguen por tag para permitir búsqueda y clasificación diferenciada sin
+> duplicar la categoría en Tienda Nube:
+> - Vaso de Expansión: `pieza:vaso-expansion` — recipiente chico (5-50L), propósito único
+> - Vaso Hidroneumático: `pieza:vaso-hidroneumatico` — recipiente grande (20-500L), multipropósito
+
 Las keywords de cada categoría son usadas por la IA para asignar
 productos automáticamente. Son la fuente de verdad para la IA.
 
@@ -303,7 +310,7 @@ información suficiente en el nombre del producto:
 | `marca:` | Marca del EQUIPO (no del repuesto) | `marca:immergas` |
 | `modelo:` | Modelo compatible, uno por tag, repetible | `modelo:eolo-star` |
 | `fabricante:` | Fabricante del repuesto en sí (placa/sensor/válvula), SOLO si es distinto de la marca del equipo | `fabricante:surrey` |
-| `pieza:` | Tipo de pieza | `pieza:placa-electronica` |
+| `pieza:` | Tipo de pieza | `pieza:placa-electronica`, `pieza:vaso-hidroneumatico` |
 | `medida:` | Medida física relevante para búsqueda | `medida:3-4` |
 | `oem:` | Código de fabricante/OEM tal cual figura en el producto | `oem:btg12` |
 

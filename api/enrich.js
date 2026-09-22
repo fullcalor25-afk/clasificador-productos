@@ -163,6 +163,8 @@ ${marcasPorNivel3Str}
    - UM + número → Unidad Magnética para calefón (Agua Sanitaria > Calefones)
    - DKG / LGB → control de llama (Calderas > Sensores y Presostatos)
    - MUF / FAN INDUCER → motor forzador (Refrigeración > Compresores y Motores)
+   - VASO DE EXPANSIÓN / EXPANSION → pieza:vaso-expansion (Calderas > Hidráulicos)
+   - VASO HIDRONEUMÁTICO / HIDRONEUMATICO → pieza:vaso-hidroneumatico (Calderas > Hidráulicos)
 
 ${bloqueForzadas}
 Usá TODA esta información combinada para elegir la categoría más específica y correcta de la lista disponible.
@@ -234,6 +236,10 @@ REGLAS PARA TAGS ESTRUCTURADOS (van DENTRO del array "tags", sumados a las palab
 - modelo:<modelo> — un tag por modelo compatible (ej. "modelo:eolo-star", "modelo:nike-star"), repetible
 - fabricante:<fabricante> — SOLO cuando el repuesto en sí (placa, sensor, válvula) es fabricado por un tercero distinto de la marca del equipo (ej. una placa Immergas con componente Surrey/Honeywell/Zettler → "fabricante:surrey"). Si la marca del equipo y el fabricante del repuesto son la misma, no repetir el tag.
 - pieza:<tipo-de-pieza> — ej. "pieza:placa-electronica", "pieza:vaso-expansion", "pieza:forzador"
+  Vaso de expansión y vaso hidroneumático van a la MISMA categoría (Calderas > Hidráulicos) pero llevan
+  tags distintos, para poder buscarlos por separado: el de expansión es un recipiente chico (5-50L) de
+  propósito único → "pieza:vaso-expansion"; el hidroneumático es grande (20-500L) y multipropósito →
+  "pieza:vaso-hidroneumatico". No confundirlos ni usar uno como sinónimo del otro.
 - medida:<medida> — solo si hay medida física relevante para búsqueda (ej. "medida:3-4", "medida:76mm")
 - oem:<codigo> — código de fabricante/OEM tal cual figura en el producto (ej. "oem:btg12"), uno por código.
   Si el producto trae "codigos_oem_confirmados", emitir un tag oem: por cada uno, tal cual vienen: son códigos
