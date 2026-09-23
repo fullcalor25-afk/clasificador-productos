@@ -22,6 +22,15 @@ export function contarSinConfirmar(fotos = []) {
   return fotos.filter(f => !f.ocr_confirmado).length;
 }
 
+/**
+ * Fotos guardadas cuyo OCR nunca llegó a completarse. Se deduce de ocr_texto
+ * vacío — no hay columna "ocr_fallo" y no hace falta: la foto se guarda antes
+ * de intentar el OCR, así que una fila sin ocr_texto es exactamente eso.
+ */
+export function contarSinOcr(fotos = []) {
+  return fotos.filter(f => !f.ocr_texto).length;
+}
+
 // Solo Groq acepta key personal desde el browser. La de Gemini es server-side:
 // nunca se guarda en el cliente ni viaja en un header.
 function headersDeIA(provider) {
@@ -113,10 +122,21 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
         timeout: OCR_TIMEOUT,
       });
 
+      // La foto queda en la lista pase lo que pase con el OCR: el server la
+      // guarda antes de transcribir, justamente para que un modelo caído no
+      // haga perder una foto que ya está sacada y subida.
       actualizar([...fotos, data.row]);
-      setEstado("idle");
       limpiarPreview();
-      toast?.success("Foto transcripta. Revisá el código antes de confirmar.");
+
+      if (data.ocr_fallo) {
+        setEstado("aviso");
+        setErrorMsg(`${data.error}. La foto quedó guardada — escribí el código a mano o reintentá.`);
+        setErrorOtro(data.otro_proveedor || null);
+        toast?.error("Foto guardada, pero el OCR falló.");
+      } else {
+        setEstado("idle");
+        toast?.success("Foto transcripta. Revisá el código antes de confirmar.");
+      }
     } catch (err) {
       setErrorMsg(err.message);
       setErrorOtro(err.payload?.otro_proveedor || null);
@@ -151,17 +171,20 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
   const reintentar = async (foto, conProvider) => {
     setOcupadoId(foto.id);
     try {
+      // Se manda el id: el server vuelve a leer SOBRE la misma fila. Antes esto
+      // insertaba una fila nueva y borraba la vieja, y ese DELETE se llevaba el
+      // archivo de Storage que la fila nueva seguía usando: reintentar dejaba la
+      // foto rota. Ahora un reintento no puede borrar nada.
       const data = await apiFetch("/api/product-images", {
         method: "POST",
         headers: headersDeIA(conProvider),
-        body: JSON.stringify({ codigo, url: foto.url, provider: conProvider }),
+        body: JSON.stringify({ id: foto.id, codigo, url: foto.url, provider: conProvider }),
         timeout: OCR_TIMEOUT,
       });
-      // El re-OCR crea una fila nueva; la anterior se descarta para no duplicar la foto
-      await apiFetch(`/api/product-images?id=${encodeURIComponent(foto.id)}`, { method: "DELETE" });
       actualizar(fotos.map(f => (f.id === foto.id ? data.row : f)));
       setBorradores(b => { const n = { ...b }; delete n[foto.id]; return n; });
-      toast?.success("Foto vuelta a transcribir.");
+      if (data.ocr_fallo) toast?.error(`${data.error}. La foto sigue guardada.`);
+      else toast?.success("Foto vuelta a transcribir.");
     } catch (err) {
       toast?.error(err.message);
     } finally {
@@ -251,19 +274,28 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
           </div>
         )}
 
-        {estado === "error" && errorMsg && (
-          <div style={{ padding: 12, borderRadius: 10, background: C.dangerBg, border: `1px solid ${C.danger}40`, color: C.danger, fontSize: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-            <span>{errorMsg}</span>
-            {errorOtro && NOMBRE_PROVIDER[errorOtro] && (
-              <button
-                onClick={() => { cambiarProvider(errorOtro); setErrorMsg(null); setErrorOtro(null); setEstado("idle"); }}
-                style={btn(C.accent, true)}
-              >
-                Cambiar a {NOMBRE_PROVIDER[errorOtro]} y sacar la foto de nuevo
-              </button>
-            )}
-          </div>
-        )}
+        {/* "aviso" es distinto de "error": la foto SÍ se guardó y lo único que
+            falló fue la transcripción. Va en ámbar, no en rojo, porque no hay
+            nada que rehacer — solo leer el código a mano o reintentar. */}
+        {(estado === "error" || estado === "aviso") && errorMsg && (() => {
+          const parcial = estado === "aviso";
+          const color = parcial ? C.warning : C.danger;
+          return (
+            <div style={{ padding: 12, borderRadius: 10, background: parcial ? `${C.warning}18` : C.dangerBg, border: `1px solid ${color}40`, color, fontSize: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              <span>{errorMsg}</span>
+              {errorOtro && NOMBRE_PROVIDER[errorOtro] && (
+                <button
+                  onClick={() => { cambiarProvider(errorOtro); setErrorMsg(null); setErrorOtro(null); setEstado("idle"); }}
+                  style={btn(C.accent, true)}
+                >
+                  {parcial
+                    ? `Usar ${NOMBRE_PROVIDER[errorOtro]} de ahora en más`
+                    : `Cambiar a ${NOMBRE_PROVIDER[errorOtro]} y sacar la foto de nuevo`}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Fotos ya cargadas */}
         {fotos.length === 0 && estado !== "uploading" && estado !== "ocr" && (
@@ -274,7 +306,9 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
 
         {fotos.map(foto => {
           const ocr = parseOcr(foto);
-          const dudosa = ocr && (ocr.confianza === "baja" || !!ocr.advertencia);
+          // Sin ocr_texto: la foto se guardó pero el OCR nunca completó.
+          const sinOcr = !foto.ocr_texto;
+          const dudosa = sinOcr || (ocr && (ocr.confianza === "baja" || !!ocr.advertencia));
           const valor = borradores[foto.id] ?? foto.codigo_confirmado ?? ocr?.codigo_principal ?? "";
           const trabajando = ocupadoId === foto.id;
 
@@ -287,7 +321,7 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
                 padding: 12,
                 borderRadius: 12,
                 background: C.bg,
-                border: `1px solid ${foto.ocr_confirmado ? C.success : C.border}`,
+                border: `1px solid ${foto.ocr_confirmado ? C.success : sinOcr ? C.warning : C.border}`,
               }}
             >
               <a href={foto.url} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}>
@@ -319,6 +353,12 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
                   />
                 )}
 
+                {sinOcr && (
+                  <div style={{ fontSize: 11, color: C.warning, lineHeight: 1.4, fontWeight: 600 }}>
+                    ⚠️ Pendiente OCR — la foto está guardada, pero no se pudo leer.
+                    Escribí el código a mano y confirmá, o reintentá.
+                  </div>
+                )}
                 {ocr?.advertencia && (
                   <div style={{ fontSize: 11, color: C.warning, lineHeight: 1.4 }}>⚠️ {ocr.advertencia}</div>
                 )}

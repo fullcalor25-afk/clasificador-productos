@@ -523,6 +523,21 @@ Se entra por `historyDetail`, no por una pantalla aparte: se vuelve al análisis
 guardado en distintos días, a medida que cada placa está físicamente a mano.
 
 1. "Agregar fotos" en la fila del producto → cámara nativa del celular.
+
+> **La foto se guarda antes del OCR, siempre.** `POST /api/product-images`
+> inserta la fila en `producto_imagenes` y recién después llama al modelo de
+> visión. Antes era al revés, y un modelo caído dejaba el archivo huérfano en
+> Storage: subido, sin fila que lo asocie al producto, invisible en la app y
+> fuera del `.zip`. Si el OCR falla, la función devuelve **200** (no 502) con
+> `ocr_fallo: true` y la fila, porque la foto sí se guardó. El estado
+> "pendiente OCR" se deduce de `ocr_texto` vacío — no hay columna nueva.
+>
+> **Un reintento nunca borra nada.** El POST acepta un `id`: vuelve a leer
+> sobre esa misma fila. Antes insertaba una fila nueva y borraba la vieja, y
+> ese DELETE se llevaba el archivo de Storage que la fila nueva seguía
+> usando — reintentar rompía la foto. El DELETE quedó solo para cuando el
+> usuario descarta una foto a propósito.
+
 2. El modelo de visión transcribe; el usuario **confirma o corrige** el código.
    Nada cuenta como dato final sin ese paso. Por defecto lee Gemini; el switch
    "Modo rápido (Groq)" cambia de proveedor y se recuerda en `localStorage`.
@@ -532,7 +547,12 @@ guardado en distintos días, a medida que cada placa está físicamente a mano.
    `codigos_oem` y salen como tags `oem:`.
 4. En Exportar → "Exportar imágenes del lote (.zip)": el CSV va por un lado
    (Tienda Nube no acepta imágenes por URL adentro del CSV) y las fotos por
-   otro, nombradas por SKU, para la app de carga masiva del marketplace.
+   otro, para la app de carga masiva del marketplace. Nombres: `{codigo}.jpg`
+   si el producto tiene una sola foto, `{codigo}-1.jpg`, `{codigo}-2.jpg` si
+   tiene varias. El archivo sale como `fullcalor-imagenes-{AAAA-MM-DD}.zip`,
+   con fecha para que dos lotes del mismo día no se pisen en Descargas.
+   **Entran todas las fotos guardadas, tengan OCR o no** — el OCR sirve para
+   el tag `oem:`, no decide si la foto se exporta.
 
 > El único lugar que sigue teniendo estructura de categorías escrita a mano
 > es `ESTRUCTURA_REFERENCIA` en `buildSystemPrompt()` (`api/enrich.js`), y es

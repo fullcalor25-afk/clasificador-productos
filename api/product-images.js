@@ -225,57 +225,104 @@ export default async function handler(req, res) {
     const url = (body.url || '').trim()
     const provider = body.provider === 'groq' ? 'groq' : 'gemini'
     const otro = provider === 'groq' ? 'gemini' : 'groq'
+    // Con id, es un reintento de OCR sobre una foto YA guardada: se reusa esa
+    // fila en vez de insertar otra. Antes el reintento insertaba una fila nueva
+    // y borraba la vieja, y ese DELETE se llevaba el archivo de Storage — que
+    // es el mismo que usaba la fila nueva. El reintento destruía la foto.
+    const idExistente = (body.id || '').trim()
     if (!codigo) return res.status(400).json({ error: 'Falta el codigo del producto' })
     if (!url) return res.status(400).json({ error: 'Falta la URL de la imagen' })
 
-    logRequest('product-images', { codigo, provider })
+    logRequest('product-images', { codigo, provider, reintento: !!idExistente })
 
-    let ocr
+    // ── 1. La fila PRIMERO, antes de tocar el OCR ─────────────────────────────
+    // La foto ya está en Storage (la subió el browser). Si se guardara recién
+    // después del OCR, un fallo del modelo la dejaría huérfana: archivo subido,
+    // sin fila que lo asocie al producto, invisible en la app y fuera del .zip.
+    let row
+    try {
+      if (idExistente) {
+        const rows = await supabaseQuery(
+          TABLE + '?select=*&id=eq.' + encodeURIComponent(idExistente),
+          {}, SUPABASE_URL, SUPABASE_KEY
+        )
+        row = Array.isArray(rows) ? rows[0] : rows
+        if (!row) return res.status(404).json({ error: 'Imagen no encontrada' })
+      } else {
+        const rows = await supabaseQuery(TABLE, {
+          method: 'POST',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify([{ codigo, url, provider_usado: provider }]),
+        }, SUPABASE_URL, SUPABASE_KEY)
+        row = Array.isArray(rows) ? rows[0] : rows
+      }
+    } catch (e) {
+      // Acá sí falla todo: sin fila no hay nada que mostrar ni que exportar.
+      return res.status(e.status || 500).json({ error: 'No se pudo guardar la foto: ' + e.message })
+    }
+
+    // ── 2. Recién ahora, el OCR ───────────────────────────────────────────────
+    let ocr = null
+    let ocrError = null
     try {
       if (provider === 'groq') {
         const userKey = req.headers['x-groq-key']
         const apiKey = (typeof userKey === 'string' && userKey.trim()) ? userKey.trim() : process.env.GROQ_API_KEY
-        if (!apiKey) {
-          return res.status(500).json({ error: 'GROQ_API_KEY no configurada', provider_fallo: 'groq', otro_proveedor: otro })
-        }
+        if (!apiKey) throw new Error('GROQ_API_KEY no configurada')
         ocr = await ocrConGroq(url, apiKey)
       } else {
         // La key de Gemini es solo server-side: no se acepta override por header
         // ni se guarda en el browser, a diferencia de la de Groq.
         const apiKey = process.env.GEMINI_API_KEY
-        if (!apiKey) {
-          return res.status(500).json({ error: 'GEMINI_API_KEY no configurada', provider_fallo: 'gemini', otro_proveedor: otro })
-        }
+        if (!apiKey) throw new Error('GEMINI_API_KEY no configurada')
         ocr = await ocrConGemini(url, apiKey)
       }
     } catch (e) {
-      console.error('[product-images ocr]', e.message)
-      // Se informa QUÉ proveedor falló para que la UI pueda ofrecer el otro, en
-      // vez de dejar al usuario sin poder cargar la foto. Con dos deprecaciones
-      // de visión en Groq en un año, esto no es hipotético.
-      return res.status(e.status || 502).json({
-        error: 'Error de IA: ' + e.message,
+      ocrError = e
+    }
+
+    // ── 3. OCR fallido: 200, no 502 ───────────────────────────────────────────
+    // La foto SÍ se guardó, así que esto no es un fracaso de la request. Se
+    // devuelve la fila para que la UI la muestre, con el aviso de que hay que
+    // leer el código a mano o reintentar. La fila queda con ocr_texto null,
+    // ocr_confirmado false y codigo_confirmado null: el estado "pendiente OCR"
+    // se deduce de ahí, sin columnas nuevas.
+    if (ocrError) {
+      console.error('[product-images ocr]', ocrError.message)
+      return res.status(200).json({
+        id: row.id,
+        row,
+        ocr: null,
+        ocr_fallo: true,
+        advertencia: 'Foto guardada pero el OCR falló — revisala a mano',
+        error: 'Error de IA: ' + ocrError.message,
+        // Se informa QUÉ proveedor falló para que la UI pueda ofrecer el otro.
+        // Con dos deprecaciones de visión en Groq en un año, no es hipotético.
         provider_fallo: provider,
         otro_proveedor: otro,
       })
     }
 
+    // ── 4. OCR exitoso: se completa la fila que ya existe ──────────────────────
     try {
-      const rows = await supabaseQuery(TABLE, {
-        method: 'POST',
+      const rows = await supabaseQuery(TABLE + '?id=eq.' + encodeURIComponent(row.id), {
+        method: 'PATCH',
         headers: { Prefer: 'return=representation' },
-        body: JSON.stringify([{
-          codigo,
-          url,
-          ocr_texto: JSON.stringify(ocr),
-          provider_usado: provider,
-        }]),
+        body: JSON.stringify({ ocr_texto: JSON.stringify(ocr), provider_usado: provider }),
       }, SUPABASE_URL, SUPABASE_KEY)
 
-      const row = Array.isArray(rows) ? rows[0] : rows
-      return res.status(200).json({ id: row?.id, ocr_texto: row?.ocr_texto, ocr, row })
+      const actualizada = (Array.isArray(rows) ? rows[0] : rows) || row
+      return res.status(200).json({ id: actualizada.id, ocr_texto: actualizada.ocr_texto, ocr, row: actualizada })
     } catch (e) {
-      return res.status(e.status || 500).json({ error: e.message })
+      // El OCR salió bien pero no se pudo guardar. La foto sigue estando, así
+      // que tampoco se rompe todo: se devuelve la lectura para no perderla.
+      console.error('[product-images patch]', e.message)
+      return res.status(200).json({
+        id: row.id,
+        row,
+        ocr,
+        advertencia: 'Se leyó el código pero no se pudo guardar la transcripción. Confirmalo a mano.',
+      })
     }
   }
 

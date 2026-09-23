@@ -312,11 +312,16 @@ export default function ExportView({
   const handleDescargarZip = async () => {
     setZipProgress({ hechas: 0, total: 0 });
     try {
-      const total = await exportImagenesZip(selectedProducts, (hechas, t) => setZipProgress({ hechas, total: t }));
-      if (total === 0) {
+      const { imagenes, productos } = await exportImagenesZip(
+        selectedProducts,
+        (hechas, t) => setZipProgress({ hechas, total: t })
+      );
+      if (imagenes === 0) {
         toast?.info?.("Ninguno de los productos de este lote tiene fotos cargadas todavía.");
       } else {
-        toast?.success?.(`✅ ${total} ${total === 1 ? "imagen" : "imágenes"} en el .zip.`);
+        toast?.success?.(
+          `✅ ZIP descargado: ${imagenes} ${imagenes === 1 ? "imagen" : "imágenes"} de ${productos} ${productos === 1 ? "producto" : "productos"}.`
+        );
       }
     } catch (e) {
       toast?.error?.(`No se pudo armar el .zip: ${e.message}`);

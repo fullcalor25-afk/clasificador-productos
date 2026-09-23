@@ -546,7 +546,11 @@ export async function exportImagenesZip(productos, onProgress) {
     });
   });
 
-  if (!pendientes.length) return 0;
+  // Cuántos productos aportaron al menos una foto — es el "de M productos"
+  // del aviso final, y no es lo mismo que la cantidad de imágenes.
+  const productosConFoto = Object.keys(porCodigo).filter(c => porCodigo[c].length > 0).length;
+
+  if (!pendientes.length) return { imagenes: 0, productos: 0 };
 
   const zip = new JSZip();
   let hechas = 0;
@@ -569,11 +573,14 @@ export async function exportImagenesZip(productos, onProgress) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "imagenes_tiendanube.zip";
+  // Con fecha en el nombre, dos lotes exportados el mismo día no se pisan en
+  // la carpeta de descargas ni hay que adivinar cuál era cuál.
+  const fecha = new Date().toISOString().slice(0, 10);
+  a.download = `fullcalor-imagenes-${fecha}.zip`;
   a.click();
   URL.revokeObjectURL(url);
 
-  return pendientes.length;
+  return { imagenes: pendientes.length, productos: productosConFoto };
 }
 
 /* ──────────────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { C, CLS, CLS_COLORS } from "../constants";
 import ClassificationBadge from "../components/ClassificationBadge";
 import Pagination from "../components/Pagination";
-import ProductPhotosModal, { contarSinConfirmar } from "../components/ProductPhotosModal";
+import ProductPhotosModal, { contarSinConfirmar, contarSinOcr } from "../components/ProductPhotosModal";
 import useIsNarrow from "../hooks/useIsNarrow";
 import { exportHistoryCSV, exportHistoryTiendaNubeCSV, apiFetch } from "../utils";
 
@@ -290,7 +290,7 @@ export default function HistoryDetailView({
                     </div>
                   )}
 
-                  <FotosBadge fotos={fotos} sinConfirmar={sinConfirmar} />
+                  <FotosBadge fotos={fotos} sinConfirmar={sinConfirmar} onClick={() => setModalProducto(p)} />
 
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setModalProducto(p)} style={accionStyle(C.accent, true)}>
@@ -401,7 +401,7 @@ export default function HistoryDetailView({
                             📷
                           </button>
                           <div style={{ marginTop: 2 }}>
-                            <FotosBadge fotos={fotos} sinConfirmar={sinConfirmar} compacto />
+                            <FotosBadge fotos={fotos} sinConfirmar={sinConfirmar} compacto onClick={() => setModalProducto(p)} />
                           </div>
                         </td>
                         <td style={{ padding: "8px 14px", textAlign: "center" }}>
@@ -447,17 +447,26 @@ export default function HistoryDetailView({
 }
 
 /** "2 fotos sin confirmar" / "1 foto ✓" — lo que se ve de un vistazo en la lista. */
-function FotosBadge({ fotos, sinConfirmar, compacto = false }) {
+function FotosBadge({ fotos, sinConfirmar, compacto = false, onClick }) {
   if (!fotos.length) return null;
 
-  const pendiente = sinConfirmar > 0;
-  const texto = pendiente
-    ? `${sinConfirmar} ${sinConfirmar === 1 ? "foto" : "fotos"} sin confirmar`
-    : `${fotos.length} ${fotos.length === 1 ? "foto" : "fotos"} ✓`;
+  // Tres estados, de más grave a menos: una foto sin OCR es una que el modelo
+  // no pudo leer y nadie va a mirar si no se avisa; una sin confirmar ya tiene
+  // lectura y solo falta el visto del usuario.
+  const sinOcr = contarSinOcr(fotos);
+  const color = sinOcr > 0 ? C.danger : sinConfirmar > 0 ? C.warning : C.success;
+
+  let detalle = " ✓";
+  if (sinOcr > 0) detalle = ` (${sinOcr} pendiente${sinOcr === 1 ? "" : "s"} OCR)`;
+  else if (sinConfirmar > 0) detalle = ` (${sinConfirmar} sin confirmar)`;
+
+  const texto = `${fotos.length} 📷${detalle}`;
+  const corto = sinOcr > 0 ? `${fotos.length}📷!` : sinConfirmar > 0 ? `${fotos.length}📷·` : `${fotos.length}📷✓`;
 
   return (
     <span
-      title={texto}
+      title={sinOcr > 0 ? `${texto} — tocá para ver cuáles` : texto}
+      onClick={onClick}
       style={{
         display: "inline-block",
         alignSelf: "flex-start",
@@ -465,11 +474,12 @@ function FotosBadge({ fotos, sinConfirmar, compacto = false }) {
         borderRadius: 6,
         fontSize: compacto ? 9 : 11,
         fontWeight: 700,
-        background: pendiente ? `${C.warning}18` : `${C.success}18`,
-        color: pendiente ? C.warning : C.success,
+        background: `${color}18`,
+        color,
+        cursor: onClick ? "pointer" : "default",
       }}
     >
-      {compacto ? (pendiente ? `${sinConfirmar}!` : `${fotos.length}✓`) : texto}
+      {compacto ? corto : texto}
     </span>
   );
 }
