@@ -17,6 +17,18 @@ function parseXLSX(file) {
   });
 }
 
+function leerTexto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = ev => resolve(ev.target.result);
+    reader.onerror = () => reject(new Error("No se pudo leer " + file.name));
+    reader.readAsText(file);
+  });
+}
+
+// Columnas que el clasificador necesita para no trabajar a ciegas
+const COLUMNAS_CLAVE = ["PRODUCTO", "RUBRO"];
+
 export default function UploadView({ onProductsLoaded, hasActiveSession, correctionsCount = 0, toast = null, tnCategories = [] }) {
   const [pasteData, setPasteData] = React.useState("");
   const [previewProducts, setPreviewProducts] = React.useState([]);
@@ -29,9 +41,21 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
   const [nivel3Filtro, setNivel3Filtro] = React.useState("");
   const [todosParseados, setTodosParseados] = React.useState([]);
 
+  // Cada archivo se parsea y se recorta por separado; recién al analizar se
+  // unen los sobrevivientes. Así un archivo con otras columnas no contamina
+  // el recorte de los demás, y se ve cuál fue.
+  const [archivos, setArchivos] = React.useState([]); // [{nombre, filas, faltantes}]
+  const [leyendo, setLeyendo] = React.useState(false);
+
+  // Los conteos del selector miran tanto lo pegado como lo subido
+  const paraConteos = React.useMemo(
+    () => (todosParseados.length ? todosParseados : archivos.flatMap(a => a.filas)),
+    [todosParseados, archivos]
+  );
+
   const opcionesNivel3 = React.useMemo(
-    () => nivel3ConConteos(tnCategories, todosParseados),
-    [tnCategories, todosParseados]
+    () => nivel3ConConteos(tnCategories, paraConteos),
+    [tnCategories, paraConteos]
   );
 
   // Parse paste data dynamically for preview
@@ -78,28 +102,81 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
   };
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const seleccionados = [...e.target.files];
+    e.target.value = ""; // permite volver a elegir el mismo archivo
+    if (!seleccionados.length) return;
 
-    if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
-      const data = await parseXLSX(file);
-      if (data.length > 0) {
-        handleProductsConfirm(data);
-      } else {
-        toast?.error("El archivo Excel no contiene filas válidas.");
-      }
-    } else {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const parsed = parseTabular(ev.target.result);
-        if (parsed.length > 0) {
-          handleProductsConfirm(parsed);
+    setLeyendo(true);
+    const nuevos = [];
+    for (const file of seleccionados) {
+      try {
+        let filas;
+        if (/\.(xlsx|xls)$/i.test(file.name)) {
+          filas = await parseXLSX(file);
         } else {
-          toast?.error("El archivo no contiene columnas reconocidas (CODIGO, PRODUCTO, RUBRO).");
+          filas = parseTabular(await leerTexto(file));
         }
-      };
-      reader.readAsText(file);
+
+        if (!filas || filas.length === 0) {
+          toast?.error(`"${file.name}" no tiene filas reconocibles.`);
+          continue;
+        }
+
+        // Aviso de cabeceras: parseTabular es genérico por header, así que un
+        // archivo sin RUBRO parsea igual y recién se nota en la tabla.
+        const cabeceras = Object.keys(filas[0] || {});
+        const faltantes = COLUMNAS_CLAVE.filter(c => !cabeceras.includes(c));
+
+        nuevos.push({ nombre: file.name, filas, faltantes });
+      } catch (err) {
+        toast?.error(`No se pudo leer "${file.name}": ${err.message}`);
+      }
     }
+    setLeyendo(false);
+
+    if (nuevos.length) {
+      setArchivos(prev => [...prev, ...nuevos]);
+      toast?.success?.(
+        nuevos.length === 1
+          ? `"${nuevos[0].nombre}" cargado: ${nuevos[0].filas.length} filas.`
+          : `${nuevos.length} archivos cargados.`
+      );
+    }
+  };
+
+  const quitarArchivo = nombre => setArchivos(prev => prev.filter(a => a.nombre !== nombre));
+
+  // El recorte de cada archivo, por separado
+  const recortes = React.useMemo(
+    () => archivos.map(a => ({ ...a, pasan: filtrarPorNivel3(a.filas, nivel3Filtro) })),
+    [archivos, nivel3Filtro]
+  );
+
+  const totalPasan = recortes.reduce((n, r) => n + r.pasan.length, 0);
+
+  // Códigos que aparecen en más de un archivo. No se descartan: el filtro
+  // decide qué entra. Pero se avisan, porque dos productos con el mismo
+  // CODIGO generan el mismo slug y al importar en Tienda Nube uno pisa al otro.
+  const codigosRepetidos = React.useMemo(() => {
+    const cuenta = new Map();
+    recortes.forEach(r => r.pasan.forEach(p => {
+      const cod = String(p.CODIGO || "").trim();
+      if (cod) cuenta.set(cod, (cuenta.get(cod) || 0) + 1);
+    }));
+    return [...cuenta.values()].filter(n => n > 1).length;
+  }, [recortes]);
+
+  const handleAnalizarArchivos = () => {
+    if (totalPasan === 0) {
+      toast?.error(
+        nivel3Filtro
+          ? `Ninguno de los archivos tiene productos de "${nivel3Filtro}".`
+          : "Los archivos no tienen filas para analizar."
+      );
+      return;
+    }
+    // Unión de los sobrevivientes: acá recién se convierten en uno solo
+    handleProductsConfirm(recortes.flatMap(r => r.pasan));
   };
 
   return (
@@ -262,6 +339,7 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           accept=".csv,.tsv,.txt,.xlsx,.xls"
           onChange={handleFileUpload}
           style={{ display: "none" }}
@@ -271,9 +349,67 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
           Subir CSV, TSV o Excel (.xlsx)
         </div>
         <div style={{ fontSize: 11, color: C.textMuted }}>
-          Delimitados por coma, punto y coma, tabulación — o planilla Excel
+          {leyendo
+            ? "Leyendo archivos..."
+            : "Podés elegir varios a la vez — se procesa cada uno por separado y se unen al final"}
         </div>
       </div>
+
+      {/* Resumen por archivo: cada uno se recorta solo, y se ve cuánto aporta */}
+      {recortes.length > 0 && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.textMuted }}>
+            {recortes.length} archivo{recortes.length !== 1 ? "s" : ""} · {totalPasan} producto{totalPasan !== 1 ? "s" : ""} para analizar
+            {nivel3Filtro ? ` (${nivel3Filtro})` : ""}
+          </div>
+
+          {recortes.map(r => (
+            <div key={r.nombre} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", paddingBottom: 8, borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: C.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {r.nombre}
+                </div>
+                <div style={{ fontSize: 11, color: r.pasan.length === 0 ? C.warning : C.textDim }}>
+                  {r.pasan.length} de {r.filas.length} filas
+                  {r.pasan.length === 0 && nivel3Filtro ? " — no aporta nada con este filtro" : ""}
+                </div>
+                {r.faltantes.length > 0 && (
+                  <div style={{ fontSize: 11, color: C.warning }}>
+                    ⚠️ Sin columna {r.faltantes.join(" ni ")} — esas filas van a clasificar mal
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => quitarArchivo(r.nombre)}
+                aria-label={`Quitar ${r.nombre}`}
+                style={{ minWidth: 44, minHeight: 44, borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.textMuted, cursor: "pointer", fontSize: 13 }}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+
+          {codigosRepetidos > 0 && (
+            <div style={{ fontSize: 11, color: C.warning, lineHeight: 1.5 }}>
+              ⚠️ {codigosRepetidos} código{codigosRepetidos !== 1 ? "s" : ""} aparece{codigosRepetidos !== 1 ? "n" : ""} en más de un archivo.
+              No los descarto, pero al exportar a Tienda Nube van a generar el mismo slug y uno pisa al otro.
+            </div>
+          )}
+
+          <button
+            onClick={handleAnalizarArchivos}
+            disabled={leyendo}
+            style={{
+              width: "100%", minHeight: 48, borderRadius: 10, border: "none",
+              background: totalPasan > 0 ? C.accent : C.border,
+              color: totalPasan > 0 ? "#fff" : C.textDim,
+              fontSize: 14, fontWeight: 700, cursor: leyendo ? "default" : "pointer",
+            }}
+          >
+            🚀 Analizar {totalPasan} producto{totalPasan !== 1 ? "s" : ""} de {recortes.length} archivo{recortes.length !== 1 ? "s" : ""}
+          </button>
+        </div>
+      )}
 
       {/* Warning Overwrite Modal */}
       {showConfirmOverwrite && (
