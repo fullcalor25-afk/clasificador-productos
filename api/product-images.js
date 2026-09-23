@@ -7,11 +7,11 @@
 // Regla de base: la IA transcribe, el usuario confirma. Nada queda como dato
 // final sin el PATCH de confirmación.
 
-import { logRequest, supabaseQuery } from './_helpers.js'
+import { logRequest, supabaseQuery, GEMINI_MODEL } from './_helpers.js'
 
 // Los IDs se verifican contra los docs/API en vivo al implementar, no de memoria.
-// Gemini (proveedor por defecto): ai.google.dev/gemini-api/docs/models
-const GEMINI_MODEL = 'gemini-3.8-flash'
+// GEMINI_MODEL vive en _helpers.js: es el mismo modelo en tres lugares y no
+// queremos que se desincronicen.
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 // Groq: los modelos de visión llama-4 fueron deprecados en 2026; el sustituto
 // multimodal es qwen3.6-27b (Preview). Verificar con GET /openai/v1/models.

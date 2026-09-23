@@ -133,6 +133,9 @@ export default function ExportView({
     const totalBatches = Math.ceil(total / batchSize);
     let processed = 0;
     let failedBatches = 0;
+    // Lotes que respondió Gemini porque Groq estaba saturado. Se avisa porque
+    // enriquecer con Gemini consume del plan pago, no de la cuota de Groq.
+    const lotesGemini = [];
 
     // Códigos OEM leídos de las fotos de placa y confirmados a mano. Es el
     // codigo_confirmado el que alimenta el tag oem:, nunca el OCR crudo.
@@ -163,7 +166,16 @@ export default function ExportView({
           });
           processed += batch.length;
           setEnrichProcessed(processed);
-          setEnrichStatus(`✓ ${processed}/${total} completados`);
+          if (data.provider === "gemini") {
+            // Solo el primero avisa por toast; el resumen del final cuenta todos.
+            if (lotesGemini.length === 0) {
+              toast?.info?.(`Groq saturado, se usó Gemini en el lote ${i + 1}. Consume de tu plan de Gemini.`);
+            }
+            lotesGemini.push(i + 1);
+            setEnrichStatus(`✓ ${processed}/${total} completados — lote ${i + 1} con Gemini`);
+          } else {
+            setEnrichStatus(`✓ ${processed}/${total} completados`);
+          }
 
           // ── Auto-crear nivel4 sugeridos en este lote (doble validación) ──────
           if (loadTnCategories) {
@@ -231,10 +243,13 @@ export default function ExportView({
 
     setEnrichLoading(false);
     if (!enrichAbortRef.current) {
+      const avisoGemini = lotesGemini.length
+        ? ` · ${lotesGemini.length} ${lotesGemini.length === 1 ? "lote" : "lotes"} con Gemini (Groq saturado): ${lotesGemini.join(", ")}`
+        : "";
       setEnrichStatus(
-        failedBatches > 0
+        (failedBatches > 0
           ? `⚠️ Enriquecimiento finalizado con ${failedBatches} de ${totalBatches} lote(s) fallido(s).`
-          : `✅ Enriquecimiento finalizado con éxito.`
+          : `✅ Enriquecimiento finalizado con éxito.`) + avisoGemini
       );
       setStep(3);
     }

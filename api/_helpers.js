@@ -33,3 +33,53 @@ export async function supabaseQuery(path, options = {}, supabaseUrl, supabaseKey
 
   return res.json()
 }
+
+// ── Gemini como respaldo de Groq ─────────────────────────────────────────────
+// Groq sigue siendo el camino normal (más rápido y más barato). Gemini entra
+// cuando Groq corta, para que un límite de cuota no frene el análisis.
+// El modelo vive acá y no en cada archivo: es el mismo en tres lugares.
+export const GEMINI_MODEL = 'gemini-3.8-flash'
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
+
+/**
+ * Llama a Gemini y devuelve el TEXTO CRUDO, sin parsear a propósito: classify
+ * espera {results: [...]} y enrich espera un array pelado, así que cada uno
+ * sigue usando su propio parseo y su post-procesado sin cambios.
+ */
+export async function llamarGemini({ systemPrompt, userPrompt, apiKey, temperature = 0.2, maxTokens = 8192 }) {
+  const r = await fetch(
+    GEMINI_URL + '/' + GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(apiKey),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        generationConfig: {
+          temperature,
+          maxOutputTokens: maxTokens,
+          // Devuelve JSON limpio, sin los bloques ```json que hay que limpiar
+          // a mano en las respuestas de Groq.
+          responseMimeType: 'application/json',
+        },
+      }),
+    }
+  )
+
+  if (!r.ok) {
+    const txt = await r.text().catch(() => '')
+    console.error('[gemini]', r.status, txt.substring(0, 300))
+    if (r.status === 401 || r.status === 403) throw new Error('GEMINI_API_KEY invalida o sin permisos')
+    if (r.status === 429) throw new Error('Gemini tambien esta limitado por cuota')
+    throw new Error('Error de Gemini (' + r.status + ')')
+  }
+
+  const data = await r.json()
+  const texto = (data?.candidates?.[0]?.content?.parts || [])
+    .map(p => p.text)
+    .filter(Boolean)
+    .join('\n')
+
+  if (!texto) throw new Error('Gemini devolvio una respuesta vacia')
+  return texto
+}

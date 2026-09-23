@@ -20,8 +20,8 @@ y con ficha completa lista para importar.
 | Frontend | React 18 + Vite |
 | Funciones serverless | Vercel Functions (Node.js ESM) |
 | Base de datos | Supabase (PostgreSQL via REST API) |
-| IA clasificación | Groq API (openai/gpt-oss-120b / openai/gpt-oss-20b) |
-| IA enriquecimiento | Groq API (mismo modelo) |
+| IA clasificación | Groq API (openai/gpt-oss-120b / openai/gpt-oss-20b), con Gemini (`gemini-3.8-flash`) de respaldo si Groq se excede de cuota |
+| IA enriquecimiento | Groq API (mismo modelo), con el mismo respaldo de Gemini |
 | IA visión / OCR de fotos | Gemini (`gemini-3.8-flash`) por defecto, Groq (`qwen/qwen3.6-27b`) como modo rápido |
 | Deploy | Vercel (auto-deploy desde GitHub) |
 | Repo | GitHub (fullcalor25-afk/clasificador-productos) |
@@ -249,6 +249,24 @@ defecto. Si se crea una tabla nueva, replicar el mismo patrón.
 1. **Correcciones aprendidas** (tabla corrections) — confianza 100%, fuente APRENDIDO
 2. **IA Groq** (api/classify.js) — si confianza > reglas locales, fuente IA
 3. **Reglas locales** (classifyProduct en src/utils.js) — keywords + scoring, fuente REGLAS
+
+### Respaldo de Gemini cuando Groq corta
+
+`api/classify.js` y `api/enrich.js` usan Groq como camino normal y caen a
+Gemini (`llamarGemini()` en `api/_helpers.js`, modelo `GEMINI_MODEL`) sólo
+cuando Groq no puede responder. El error decide el camino:
+
+| Error de Groq | Qué pasa |
+|---|---|
+| **429** (cuota excedida) | Salta a Gemini **de inmediato**, sin gastar el ladder. Una cuota por minuto no se libera en 6s: reintentar es tiempo tirado (~24s por lote). |
+| **500 / 503** (modelo sobrecargado) | Se mantiene el ladder de 2 modelos × 2 intentos; Gemini es el último recurso. Son fallas transitorias donde reintentar sirve. |
+| **401** (key inválida) | Devuelve 401 y **no** toca Gemini. Es un error de configuración que hay que ver, no tapar gastando cuota paga. |
+
+La respuesta de ambos endpoints incluye `provider: 'groq' | 'gemini'`. El
+frontend (`useClassification.runAI` y `ExportView.runEnrich`) avisa qué lotes
+contestó Gemini, porque eso consume del plan pago de Gemini y no de la cuota
+de Groq. Si fallan los dos, `enrich` devuelve **503** (no 500) para que
+`enrichBatchWithRetry` reintente en vez de descartar el lote.
 
 ### Categorías de clasificación:
 - REPUESTO — pieza que reemplaza parte dañada de un equipo

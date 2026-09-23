@@ -1,8 +1,12 @@
-import { supabaseQuery } from './_helpers.js'
+import { supabaseQuery, llamarGemini } from './_helpers.js'
 
-const MODELS = [
-  'openai/gpt-oss-120b',
-  'openai/gpt-oss-20b',
+// Groq primero (más rápido y barato); Gemini como respaldo para que un límite
+// de cuota no frene el enriquecimiento. El post-procesado de abajo —marca,
+// categoria_forzada, validación de categorías— corre igual para los dos.
+const PROVEEDORES = [
+  { tipo: 'groq', model: 'openai/gpt-oss-120b' },
+  { tipo: 'groq', model: 'openai/gpt-oss-20b' },
+  { tipo: 'gemini' },
 ]
 
 function wait(ms) {
@@ -373,11 +377,42 @@ export default async function handler(req, res) {
   )
 
   let lastError = 'Error desconocido'
+  let saltarAGemini = false
+  let content = ''
+  let proveedorUsado = 'groq'
   const attemptCounts = {}
   const MAX_ATTEMPTS_PER_MODEL = 2
 
-  for (let m = 0; m < MODELS.length; m++) {
-    const model = MODELS[m]
+  for (let m = 0; m < PROVEEDORES.length; m++) {
+    const proveedor = PROVEEDORES[m]
+    const model = proveedor.model
+
+    // Si Groq ya dijo que está limitado, no tiene sentido probar su otro modelo
+    if (saltarAGemini && proveedor.tipo !== 'gemini') continue
+
+    // ── Respaldo con Gemini ────────────────────────────────────────────────
+    if (proveedor.tipo === 'gemini') {
+      if (!process.env.GEMINI_API_KEY) {
+        console.log('[enrich] Sin GEMINI_API_KEY, no hay respaldo')
+        continue
+      }
+      console.log('[enrich]', saltarAGemini ? 'Groq limitado' : 'Groq agotado', '- probando con Gemini')
+      try {
+        content = await llamarGemini({
+          systemPrompt: SYSTEM_PROMPT,
+          userPrompt,
+          apiKey: process.env.GEMINI_API_KEY,
+          temperature: 0.3,
+          maxTokens: 8192,
+        })
+        proveedorUsado = 'gemini'
+      } catch (e) {
+        console.log('[enrich] Gemini tambien fallo:', e.message)
+        lastError = lastError + ' | Gemini: ' + e.message
+        continue
+      }
+    } else {
+
     attemptCounts[m] = (attemptCounts[m] || 0) + 1
     console.log('Intentando modelo Groq:', model, '- intento', attemptCounts[m])
     try {
@@ -402,10 +437,17 @@ export default async function handler(req, res) {
 
       if (!response.ok) {
         lastError = (data.error && data.error.message) ? data.error.message : JSON.stringify(data)
-        if (response.status === 429 || response.status === 503) {
+        if (response.status === 429) {
+          // Una cuota por minuto no se libera en 6 segundos: reintentar es
+          // tiempo tirado, y con decenas de lotes son minutos.
+          console.log('[enrich] Rate limit en ' + model + ', pasando a Gemini sin reintentar')
+          saltarAGemini = true
+          continue
+        }
+        if (response.status === 503) {
           if (attemptCounts[m] < MAX_ATTEMPTS_PER_MODEL) {
             const backoff = 6000
-            console.log(`[enrich] Rate limit en ${model}, esperando ${backoff}ms antes de reintentar (intento ${attemptCounts[m]}/${MAX_ATTEMPTS_PER_MODEL})`)
+            console.log(`[enrich] Modelo sobrecargado en ${model}, esperando ${backoff}ms antes de reintentar (intento ${attemptCounts[m]}/${MAX_ATTEMPTS_PER_MODEL})`)
             await wait(backoff)
             m--
           }
@@ -414,7 +456,16 @@ export default async function handler(req, res) {
         break
       }
 
-      const content = data.choices?.[0]?.message?.content || ''
+        content = data.choices?.[0]?.message?.content || ''
+        proveedorUsado = 'groq'
+      } catch (e) {
+        lastError = e.message
+        continue
+      }
+    }
+
+    // ── Parseo y post-procesado, iguales para Groq y para Gemini ────────────
+    try {
       const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
 
       let results
@@ -555,12 +606,15 @@ export default async function handler(req, res) {
         })
       }
 
-      return res.status(200).json({ results })
+      return res.status(200).json({ results, provider: proveedorUsado })
 
     } catch (e) {
       lastError = e.message
     }
   }
 
-  return res.status(500).json({ error: 'Error de IA: ' + lastError })
+  // 503 y no 500 a proposito: el cliente (enrichBatchWithRetry) reintenta con
+  // backoff ante 503 y descarta el lote ante 500. Si llegamos aca fallaron los
+  // dos proveedores, y eso casi siempre es transitorio (cuota, sobrecarga).
+  return res.status(503).json({ error: 'Groq y Gemini fallaron: ' + lastError })
 }

@@ -145,6 +145,9 @@ export default function useClassification() {
     const batchSize = 50;
     const totalBatches = Math.ceil(products.length / batchSize);
     let consecutiveErrors = 0;
+    // Lotes que terminó contestando Gemini porque Groq estaba saturado.
+    // Se avisa: Gemini consume del plan pago, no de la cuota gratis de Groq.
+    const lotesGemini = [];
     const BASE_DELAY = 6000;
 
     for (let i = 0; i < totalBatches; i++) {
@@ -209,7 +212,12 @@ export default function useClassification() {
         if (data.results && Array.isArray(data.results)) {
           allResults.push(...data.results);
           setAiProcessed(allResults.length);
-          setAiStatus(`✓ Lote ${batchNum}/${totalBatches} clasificado con éxito`);
+          if (data.provider === "gemini") {
+            lotesGemini.push(batchNum);
+            setAiStatus(`✓ Lote ${batchNum}/${totalBatches} clasificado — Groq saturado, respondió Gemini`);
+          } else {
+            setAiStatus(`✓ Lote ${batchNum}/${totalBatches} clasificado con éxito`);
+          }
           
           if (onResultsReady) {
             onResultsReady(allResults);
@@ -230,7 +238,10 @@ export default function useClassification() {
 
     setAiLoading(false);
     if (allResults.length > 0 && !aiAbortRef.current) {
-      setAiStatus(`✅ Clasificación de IA finalizada. ${allResults.length} productos procesados.`);
+      const avisoGemini = lotesGemini.length
+        ? ` · ${lotesGemini.length} ${lotesGemini.length === 1 ? "lote" : "lotes"} con Gemini (Groq saturado): ${lotesGemini.join(", ")}`
+        : "";
+      setAiStatus(`✅ Clasificación de IA finalizada. ${allResults.length} productos procesados.${avisoGemini}`);
       return allResults;
     }
     return null;

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { llamarGemini } from './_helpers.js'
 
 const MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']
 
@@ -137,7 +138,40 @@ export default async function handler(req, res) {
 
   const userPrompt   = buildUserPrompt(products)
   const systemPrompt = getSystemPrompt(recentCorrections, tnCategories)
+
+  // Guardado + respuesta, compartidos por Groq y por Gemini
+  async function responder(results, provider) {
+  // 2. Guardar en Supabase (tabla legacy clasificaciones)
+  if (supabase) {
+    try {
+      const upsertData = results.map(r => {
+        const op = products.find(p => (p.CODIGO || '') === r.codigo) || {}
+        if (!r.codigo) return null
+        return {
+          codigo:          r.codigo,
+          producto:        op.PRODUCTO    || '',
+          rubro:           op.RUBRO       || '',
+          sub_rubro:       op['SUB RUBRO'] || '',
+          clasificacion_ia: r.clasificacion,
+          updated_at:      new Date().toISOString(),
+        }
+      }).filter(Boolean)
+      if (upsertData.length > 0) {
+        const { error: insertError } = await supabase
+          .from('clasificaciones')
+          .upsert(upsertData, { onConflict: 'codigo' })
+        if (insertError) console.log('Advertencia Supabase:', insertError.message)
+      }
+    } catch (e) {
+      console.log('Error guardando en Supabase:', e.message)
+    }
+  }
+
+  return res.status(200).json({ results, provider })
+  }
+
   let lastError = 'Error desconocido'
+  let groqLimitado = false
   const attemptCounts = {}
   const MAX_ATTEMPTS_PER_MODEL = 2
 
@@ -164,8 +198,16 @@ export default async function handler(req, res) {
         }),
       })
 
-      if (response.status === 429 || response.status === 503 || response.status === 500) {
-        lastError = (response.status === 429 ? 'Rate limit en ' : 'Modelo sobrecargado en ') + model
+      if (response.status === 429) {
+        // Las cuotas por minuto no se liberan en 6 segundos: reintentar es
+        // tiempo tirado. Se sale del ladder y se va derecho a Gemini.
+        lastError = 'Rate limit en ' + model
+        groqLimitado = true
+        console.log('[classify] Groq limitado, pasando a Gemini sin reintentar')
+        break
+      }
+      if (response.status === 503 || response.status === 500) {
+        lastError = 'Modelo sobrecargado en ' + model
         if (attemptCounts[m] < MAX_ATTEMPTS_PER_MODEL) {
           const backoff = 6000
           console.log(`[classify] ${lastError}, esperando ${backoff}ms antes de reintentar (intento ${attemptCounts[m]}/${MAX_ATTEMPTS_PER_MODEL})`)
@@ -208,34 +250,10 @@ export default async function handler(req, res) {
       }
 
       console.log('Exito con', model, '-', results.length, 'productos clasificados')
+      return await responder(results, 'groq')
 
-      // 2. Guardar en Supabase (tabla legacy clasificaciones)
-      if (supabase) {
-        try {
-          const upsertData = results.map(r => {
-            const op = products.find(p => (p.CODIGO || '') === r.codigo) || {}
-            if (!r.codigo) return null
-            return {
-              codigo:          r.codigo,
-              producto:        op.PRODUCTO    || '',
-              rubro:           op.RUBRO       || '',
-              sub_rubro:       op['SUB RUBRO'] || '',
-              clasificacion_ia: r.clasificacion,
-              updated_at:      new Date().toISOString(),
-            }
-          }).filter(Boolean)
-          if (upsertData.length > 0) {
-            const { error: insertError } = await supabase
-              .from('clasificaciones')
-              .upsert(upsertData, { onConflict: 'codigo' })
-            if (insertError) console.log('Advertencia Supabase:', insertError.message)
-          }
-        } catch (e) {
-          console.log('Error guardando en Supabase:', e.message)
-        }
-      }
 
-      return res.status(200).json({ results })
+
 
     } catch (err) {
       console.log('Excepcion con', model, ':', err.message)
@@ -243,8 +261,36 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── Respaldo: Gemini ──────────────────────────────────────────────────────
+  // Groq no pudo (cuota agotada o modelos caídos). En vez de frenar el
+  // análisis, se reintenta con Gemini.
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (geminiKey) {
+    console.log('[classify]', groqLimitado ? 'Groq limitado' : 'Groq agotado', '- probando con Gemini')
+    try {
+      const texto = await llamarGemini({
+        systemPrompt,
+        userPrompt,
+        apiKey: geminiKey,
+        temperature: 0.1,
+      })
+      const parsed = JSON.parse(texto)
+      const results = parsed.results
+      if (!results || !Array.isArray(results)) {
+        throw new Error('Gemini devolvio un formato inesperado')
+      }
+      console.log('[classify] Exito con Gemini -', results.length, 'productos clasificados')
+      return await responder(results, 'gemini')
+    } catch (e) {
+      console.log('[classify] Gemini tambien fallo:', e.message)
+      lastError = lastError + ' | Gemini: ' + e.message
+    }
+  } else {
+    console.log('[classify] Sin GEMINI_API_KEY, no hay respaldo')
+  }
+
   console.log('[classify] Todos los modelos fallaron. Ultimo error:', lastError)
   return res.status(503).json({
-    error: 'Todos los modelos de Groq fallaron. Espera unos minutos. Ultimo error: ' + lastError,
+    error: 'Groq y Gemini fallaron. Espera unos minutos. Ultimo error: ' + lastError,
   })
 }
