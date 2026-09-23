@@ -20,7 +20,7 @@ y con ficha completa lista para importar.
 | Frontend | React 18 + Vite |
 | Funciones serverless | Vercel Functions (Node.js ESM) |
 | Base de datos | Supabase (PostgreSQL via REST API) |
-| IA clasificación | Groq API (openai/gpt-oss-120b / openai/gpt-oss-20b), con Gemini (`gemini-3.8-flash`) de respaldo si Groq se excede de cuota |
+| IA clasificación | `gpt-oss-120b` alternando por lote entre Groq y Cerebras (mismo modelo, cuotas separadas), con `gpt-oss-20b` y Gemini de respaldo |
 | IA enriquecimiento | Groq API (mismo modelo), con el mismo respaldo de Gemini |
 | IA visión / OCR de fotos | Gemini (`gemini-3.8-flash`) por defecto, Groq (`qwen/qwen3.6-27b`) como modo rápido |
 | Deploy | Vercel (auto-deploy desde GitHub) |
@@ -32,6 +32,7 @@ y con ficha completa lista para importar.
 
 ```
 GROQ_API_KEY              API key de Groq
+CEREBRAS_API_KEY          API key de Cerebras (OPCIONAL — ver abajo)
 GEMINI_API_KEY            API key de Gemini (OCR de fotos de placas)
 SUPABASE_URL              URL del proyecto Supabase
 SUPABASE_KEY              anon public key de Supabase
@@ -249,6 +250,37 @@ defecto. Si se crea una tabla nueva, replicar el mismo patrón.
 1. **Correcciones aprendidas** (tabla corrections) — confianza 100%, fuente APRENDIDO
 2. **IA Groq** (api/classify.js) — si confianza > reglas locales, fuente IA
 3. **Reglas locales** (classifyProduct en src/utils.js) — keywords + scoring, fuente REGLAS
+
+### Rotación Groq ↔ Cerebras (solo en clasificación)
+
+Cerebras corre **el mismo modelo `gpt-oss-120b`** que usamos en Groq, con una
+cuota aparte (1M tokens/día gratis). `api/classify.js` alterna cuál de los dos
+arranca según el número de lote que manda el frontend (`lote` en el body):
+
+- **lote par** → Groq 120b → Cerebras → Groq 20b
+- **lote impar** → Cerebras → Groq 120b → Groq 20b
+
+Es rotación entre **proveedores del mismo modelo**, no entre modelos distintos.
+Esa distinción es el punto: reparte el límite sin que dos repuestos equivalentes
+terminen con criterios de clasificación distintos. Por eso **no se hace lo mismo
+en `api/enrich.js`** — ahí el modelo redacta descripciones, tags y estima
+dimensiones, y mezclar modelos se vería en la tienda.
+
+Si un proveedor devuelve **429**, se marca como limitado por ese lote y se pasa
+al otro, que tiene cuota propia. Gemini recién entra cuando los dos se agotaron.
+
+`CEREBRAS_API_KEY` es **opcional**: sin ella `construirIntentos()` devuelve la
+lista de siempre (Groq 120b → 20b) y no cambia nada. Si la key está pero es
+inválida (401/403), **no** se corta el análisis —  Cerebras es un agregado, no
+el camino principal—: se saltea y la respuesta trae un campo `aviso` que el
+Dashboard muestra, para que el problema de configuración no quede solo en los
+logs de Vercel. Un 401 de **Groq** sí corta con 401, porque ese es el principal.
+
+> **Lote de 30, no de 50.** El plan gratis de Cerebras limita el contexto a 8K
+> tokens (entrada + salida). Con el prompt de sistema (~58 categorías) más 4K
+> reservados de salida, 50 productos no entran. Como los lotes alternan, todos
+> tienen que caber en el más chico de los dos proveedores. Si algún día se
+> agranda el prompt de `classify`, revisar este número.
 
 ### Respaldo de Gemini cuando Groq corta
 

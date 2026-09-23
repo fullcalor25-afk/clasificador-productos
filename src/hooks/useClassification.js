@@ -142,12 +142,21 @@ export default function useClassification() {
     aiAbortRef.current = false;
 
     const allResults = [];
-    const batchSize = 50;
+    // 30 y no 50: el plan gratis de Cerebras limita el contexto a 8K tokens
+    // (entrada + salida) y con 50 productos no entra. Como los lotes alternan
+    // entre Groq y Cerebras, todos tienen que caber en el más chico de los dos.
+    const batchSize = 30;
     const totalBatches = Math.ceil(products.length / batchSize);
     let consecutiveErrors = 0;
     // Lotes que terminó contestando Gemini porque Groq estaba saturado.
     // Se avisa: Gemini consume del plan pago, no de la cuota gratis de Groq.
     const lotesGemini = [];
+    // Cuántos lotes contestó cada proveedor. Sirve para confirmar de un vistazo
+    // que la rotación Groq/Cerebras está funcionando de verdad.
+    const porProveedor = {};
+    // Avisos de configuración del server (ej. CEREBRAS_API_KEY mal cargada).
+    // Se muestran una sola vez y no cortan el análisis.
+    const avisosVistos = new Set();
     const BASE_DELAY = 6000;
 
     for (let i = 0; i < totalBatches; i++) {
@@ -175,7 +184,9 @@ export default function useClassification() {
         const res = await fetchWithTimeout("/api/classify", {
           method: "POST",
           headers,
-          body: JSON.stringify({ products: batch }),
+          // El número de lote decide qué proveedor arranca en el server, para
+          // que la carga se reparta entre las cuotas de Groq y de Cerebras.
+          body: JSON.stringify({ products: batch, lote: i }),
         });
 
         const data = await res.json().catch(() => ({}));
@@ -186,7 +197,9 @@ export default function useClassification() {
           
           if (status === 429 || status === 503) {
             const retryWait = Math.min(consecutiveErrors * 20000, 120000);
-            setAiStatus(`⏳ Límite de API Groq excedido. Esperando ${Math.round(retryWait / 1000)}s antes de reintentar lote ${batchNum}...`);
+            // Un 503 del server ya significa que fallaron todos los proveedores
+            // (Groq, Cerebras y Gemini), así que acá solo queda esperar.
+            setAiStatus(`⏳ Todos los proveedores de IA están saturados. Esperando ${Math.round(retryWait / 1000)}s antes de reintentar lote ${batchNum}...`);
             await wait(retryWait);
             i--; // Retry same batch
             continue;
@@ -212,7 +225,15 @@ export default function useClassification() {
         if (data.results && Array.isArray(data.results)) {
           allResults.push(...data.results);
           setAiProcessed(allResults.length);
-          if (data.provider === "gemini") {
+          if (data.aviso && !avisosVistos.has(data.aviso)) {
+            avisosVistos.add(data.aviso);
+            // DashboardView ya le pone el ⚠️ y el fondo rojo. No corta nada:
+            // el lote se clasificó igual, pero la key hay que arreglarla.
+            setAiError(data.aviso);
+          }
+          const prov = data.provider || "groq";
+          porProveedor[prov] = (porProveedor[prov] || 0) + 1;
+          if (prov === "gemini") {
             lotesGemini.push(batchNum);
             setAiStatus(`✓ Lote ${batchNum}/${totalBatches} clasificado — Groq saturado, respondió Gemini`);
           } else {
@@ -241,7 +262,10 @@ export default function useClassification() {
       const avisoGemini = lotesGemini.length
         ? ` · ${lotesGemini.length} ${lotesGemini.length === 1 ? "lote" : "lotes"} con Gemini (Groq saturado): ${lotesGemini.join(", ")}`
         : "";
-      setAiStatus(`✅ Clasificación de IA finalizada. ${allResults.length} productos procesados.${avisoGemini}`);
+      const reparto = Object.entries(porProveedor)
+        .map(([p, n]) => `${p} ${n}`)
+        .join(" · ");
+      setAiStatus(`✅ Clasificación de IA finalizada. ${allResults.length} productos procesados. Lotes por proveedor: ${reparto}.${avisoGemini}`);
       return allResults;
     }
     return null;

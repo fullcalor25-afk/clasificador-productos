@@ -1,7 +1,39 @@
 import { createClient } from '@supabase/supabase-js'
-import { llamarGemini } from './_helpers.js'
+import { llamarGemini, CEREBRAS_MODEL, CEREBRAS_URL, CEREBRAS_MAX_TOKENS } from './_helpers.js'
 
-const MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+
+/**
+ * Arma el orden de intentos de este lote.
+ *
+ * Groq y Cerebras corren el MISMO modelo (gpt-oss-120b) con cuotas separadas,
+ * así que alternar cuál va primero según el número de lote reparte el límite
+ * entre las dos sin que el catálogo salga con criterios distintos: es el mismo
+ * modelo el que clasifica, solo cambia quién lo hospeda.
+ *
+ * Sin CEREBRAS_API_KEY la lista queda igual que antes (Groq 120b → 20b), así
+ * que la rotación es opcional: si no está la key, no cambia nada.
+ */
+function construirIntentos(lote, groqKey, cerebrasKey) {
+  const groq120 = { tipo: 'groq', model: 'openai/gpt-oss-120b', url: GROQ_URL, key: groqKey }
+  const groq20  = { tipo: 'groq', model: 'openai/gpt-oss-20b',  url: GROQ_URL, key: groqKey }
+
+  if (!cerebrasKey) return [groq120, groq20]
+
+  const cerebras = {
+    tipo: 'cerebras',
+    model: CEREBRAS_MODEL,
+    url: CEREBRAS_URL,
+    key: cerebrasKey,
+    maxTokens: CEREBRAS_MAX_TOKENS,
+  }
+
+  // gpt-oss-20b queda último en los dos casos: es el modelo más chico y solo
+  // tiene sentido cuando el grande no está disponible en ningún proveedor.
+  return lote % 2 === 0
+    ? [groq120, cerebras, groq20]
+    : [cerebras, groq120, groq20]
+}
 
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -96,9 +128,17 @@ export default async function handler(req, res) {
     supabase = createClient(supabaseUrl, supabaseKey)
   }
 
-  const { products } = req.body || {}
+  const { products, lote } = req.body || {}
   if (!products || !Array.isArray(products) || products.length === 0)
     return res.status(400).json({ error: 'No se enviaron productos' })
+
+  // Número de lote del frontend: decide cuál proveedor arranca, para repartir
+  // la carga entre las dos cuotas. Si no viene, arranca siempre por Groq.
+  const numeroLote = Number.isInteger(lote) ? lote : 0
+  const intentos = construirIntentos(numeroLote, apiKey, process.env.CEREBRAS_API_KEY)
+  // Aviso de configuración que viaja con la respuesta exitosa (ver el 401/403
+  // de Cerebras más abajo): un problema de key no puede quedar solo en los logs.
+  let avisoConfig = null
 
   // 1. Cargar ejemplos manuales recientes de Supabase
   let recentCorrections = []
@@ -167,25 +207,33 @@ export default async function handler(req, res) {
     }
   }
 
-  return res.status(200).json({ results, provider })
+  return res.status(200).json({ results, provider, ...(avisoConfig ? { aviso: avisoConfig } : {}) })
   }
 
   let lastError = 'Error desconocido'
-  let groqLimitado = false
+  // Proveedores que ya contestaron 429. Una cuota por minuto no se libera en
+  // segundos, así que no se vuelve a probar el mismo proveedor en este lote —
+  // pero sí el otro, que tiene cuota aparte. Ese es el punto de la rotación.
+  const limitados = new Set()
   const attemptCounts = {}
   const MAX_ATTEMPTS_PER_MODEL = 2
 
-  for (let m = 0; m < MODELS.length; m++) {
-    const model = MODELS[m]
+  for (let m = 0; m < intentos.length; m++) {
+    const { tipo, model, url, key, maxTokens } = intentos[m]
+    if (limitados.has(tipo)) {
+      console.log(`[classify] Salteando ${model}: ${tipo} ya esta limitado en este lote`)
+      continue
+    }
+
     attemptCounts[m] = (attemptCounts[m] || 0) + 1
-    console.log('Intentando modelo Groq:', model, '- intento', attemptCounts[m])
+    console.log(`Intentando ${tipo}:`, model, '- intento', attemptCounts[m])
 
     try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type':  'application/json',
-          'Authorization': 'Bearer ' + apiKey,
+          'Authorization': 'Bearer ' + key,
         },
         body: JSON.stringify({
           model,
@@ -195,16 +243,17 @@ export default async function handler(req, res) {
           ],
           temperature: 0.1,
           response_format: { type: 'json_object' },
+          ...(maxTokens ? { max_tokens: maxTokens } : {}),
         }),
       })
 
       if (response.status === 429) {
-        // Las cuotas por minuto no se liberan en 6 segundos: reintentar es
-        // tiempo tirado. Se sale del ladder y se va derecho a Gemini.
-        lastError = 'Rate limit en ' + model
-        groqLimitado = true
-        console.log('[classify] Groq limitado, pasando a Gemini sin reintentar')
-        break
+        // Cuota agotada en este proveedor. Se marca y se sigue con el otro,
+        // que tiene su propio límite; Gemini queda para si fallan los dos.
+        lastError = 'Rate limit en ' + model + ' (' + tipo + ')'
+        limitados.add(tipo)
+        console.log(`[classify] ${tipo} limitado, probando el siguiente proveedor`)
+        continue
       }
       if (response.status === 503 || response.status === 500) {
         lastError = 'Modelo sobrecargado en ' + model
@@ -218,7 +267,19 @@ export default async function handler(req, res) {
         }
         continue
       }
-      if (response.status === 401) return res.status(401).json({ error: 'API Key de Groq invalida. Revisa tu GROQ_API_KEY.' })
+      if (response.status === 401 || response.status === 403) {
+        // La key de Groq es la principal: si está mal, hay que verlo y arreglarlo.
+        if (tipo === 'groq') {
+          return res.status(401).json({ error: 'API Key de Groq invalida. Revisa tu GROQ_API_KEY.' })
+        }
+        // Cerebras es un agregado opcional: una key mala no puede frenar un
+        // análisis que Groq puede hacer igual. Se saltea, pero el aviso viaja
+        // en la respuesta para que no quede escondido en los logs de Vercel.
+        avisoConfig = 'CEREBRAS_API_KEY invalida o sin permisos — se clasifico sin Cerebras. Revisala en Vercel.'
+        limitados.add(tipo)
+        console.log('[classify]', avisoConfig)
+        continue
+      }
       if (!response.ok) {
         const errTxt = await response.text()
         lastError = 'Error ' + response.status + ' en ' + model + ': ' + errTxt.substring(0, 200)
@@ -249,11 +310,8 @@ export default async function handler(req, res) {
         continue
       }
 
-      console.log('Exito con', model, '-', results.length, 'productos clasificados')
-      return await responder(results, 'groq')
-
-
-
+      console.log('Exito con', model, '(' + tipo + ') -', results.length, 'productos clasificados')
+      return await responder(results, tipo)
 
     } catch (err) {
       console.log('Excepcion con', model, ':', err.message)
@@ -262,11 +320,14 @@ export default async function handler(req, res) {
   }
 
   // ── Respaldo: Gemini ──────────────────────────────────────────────────────
-  // Groq no pudo (cuota agotada o modelos caídos). En vez de frenar el
-  // análisis, se reintenta con Gemini.
+  // Ningún proveedor de gpt-oss pudo (cuota agotada o modelos caídos). En vez
+  // de frenar el análisis, se reintenta con Gemini.
   const geminiKey = process.env.GEMINI_API_KEY
   if (geminiKey) {
-    console.log('[classify]', groqLimitado ? 'Groq limitado' : 'Groq agotado', '- probando con Gemini')
+    const motivo = limitados.size > 0
+      ? 'Limitados: ' + [...limitados].join(', ')
+      : 'Proveedores agotados'
+    console.log('[classify]', motivo, '- probando con Gemini')
     try {
       const texto = await llamarGemini({
         systemPrompt,
@@ -291,6 +352,6 @@ export default async function handler(req, res) {
 
   console.log('[classify] Todos los modelos fallaron. Ultimo error:', lastError)
   return res.status(503).json({
-    error: 'Groq y Gemini fallaron. Espera unos minutos. Ultimo error: ' + lastError,
+    error: 'Todos los proveedores de IA fallaron. Espera unos minutos. Ultimo error: ' + lastError,
   })
 }

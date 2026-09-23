@@ -34,6 +34,19 @@ export async function supabaseQuery(path, options = {}, supabaseUrl, supabaseKey
   return res.json()
 }
 
+// ── Cerebras: el mismo modelo que Groq, en otra cuota ────────────────────────
+// Cerebras corre gpt-oss-120b, exactamente el mismo modelo que usamos en Groq.
+// Por eso alternar entre los dos reparte el límite sin cambiar en nada cómo
+// queda el catálogo: piensa el mismo modelo, cambia la máquina donde corre.
+// Su API es compatible con la de OpenAI, así que el request es igual al de Groq.
+export const CEREBRAS_MODEL = 'gpt-oss-120b'
+export const CEREBRAS_URL = 'https://api.cerebras.ai/v1/chat/completions'
+
+// El plan gratis de Cerebras limita el contexto a 8K tokens (entrada + salida).
+// Con ~1.5K de prompt de sistema y 4K reservados de salida, 30 productos por
+// lote entran con margen; 50 no. De ahí el tamaño de lote en useClassification.
+export const CEREBRAS_MAX_TOKENS = 4096
+
 // ── Gemini como respaldo de Groq ─────────────────────────────────────────────
 // Groq sigue siendo el camino normal (más rápido y más barato). Gemini entra
 // cuando Groq corta, para que un límite de cuota no frene el análisis.
