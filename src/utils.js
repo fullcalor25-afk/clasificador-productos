@@ -606,17 +606,35 @@ const PALABRAS_VACIAS = new Set(["y", "de", "a", "del", "la", "el", "los", "las"
  * "Salamandras" matchea "VARIOS SALAMANDRAS", sin una sola categoría escrita
  * en el código.
  */
+// Las categorías están en plural ("Calderas", "Radiadores") y los productos en
+// singular ("CALDERA MURAL"). Medido sobre el catálogo real: buscar "calderas"
+// encuentra 3 nombres, buscar "caldera" encuentra 59; "radiadores" encuentra 0
+// y "radiador" encuentra 3. Sin esto, mirar el nombre no serviría de nada.
+function raiz(palabra) {
+  if (palabra.length > 4 && palabra.endsWith("es")) return palabra.slice(0, -2);
+  if (palabra.length > 3 && palabra.endsWith("s")) return palabra.slice(0, -1);
+  return palabra;
+}
+
 export function coincideNivel3(producto, nivel3) {
   if (!nivel3) return true; // "Todos"
 
   const palabras = normalizarTexto(nivel3)
     .split(/\s+/)
-    .filter(p => p.length > 2 && !PALABRAS_VACIAS.has(p));
+    .filter(p => p.length > 2 && !PALABRAS_VACIAS.has(p))
+    .map(raiz);
   if (!palabras.length) return false;
 
-  const rubro = normalizarTexto(producto.RUBRO || producto.rubro);
-  const subRubro = normalizarTexto(producto["SUB RUBRO"] || producto.sub_rubro);
-  const donde = rubro + " " + subRubro;
+  // Se mira también el NOMBRE, no solo la clasificación del proveedor: hay
+  // archivos sin columna RUBRO, o con el rubro escrito de otra forma, donde el
+  // único lugar donde dice "caldera" es el nombre del producto. Es un filtro
+  // generoso a propósito — de más entra y se revisa en la tabla; de menos se
+  // pierde sin que nadie se entere.
+  const donde = [
+    producto.PRODUCTO || producto.producto,
+    producto.RUBRO || producto.rubro,
+    producto["SUB RUBRO"] || producto.sub_rubro,
+  ].map(normalizarTexto).join(" ");
 
   return palabras.some(p => donde.includes(p));
 }

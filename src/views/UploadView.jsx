@@ -70,8 +70,21 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
     setPreviewProducts(parsed.slice(0, 5));
   }, [pasteData]);
 
-  const handleProductsConfirm = (loadedProducts) => {
+  // yaFiltrado: los archivos ya se recortaron uno por uno (y alguno puede
+  // haber entrado entero a propósito). Volver a filtrar acá pisaría esa
+  // decisión y sacaría justo las filas que el usuario mandó a entrar igual.
+  const handleProductsConfirm = (loadedProducts, yaFiltrado = false) => {
     if (loadedProducts.length === 0) return;
+
+    if (yaFiltrado) {
+      if (hasActiveSession) {
+        pendingProductsRef.current = loadedProducts;
+        setShowConfirmOverwrite(true);
+      } else {
+        onProductsLoaded(loadedProducts);
+      }
+      return;
+    }
 
     // Después de cargar, antes de clasificar
     const filtrados = filtrarPorNivel3(loadedProducts, nivel3Filtro);
@@ -144,12 +157,28 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
     }
   };
 
-  const quitarArchivo = nombre => setArchivos(prev => prev.filter(a => a.nombre !== nombre));
+  const quitarArchivo = nombre => {
+    setArchivos(prev => prev.filter(a => a.nombre !== nombre));
+    // Si no, al volver a subir un archivo con el mismo nombre entraría entero
+    // sin que nadie lo haya pedido esta vez.
+    setSinFiltrar(prev => prev.filter(n => n !== nombre));
+  };
+
+  // Archivos que el usuario decidió entrar enteros, salteando el filtro. El
+  // filtro es una ayuda, no una aduana: si sabe que ahí hay algo que el filtro
+  // no ve, tiene que poder meterlo igual y revisarlo después en la tabla.
+  const [sinFiltrar, setSinFiltrar] = React.useState([]);
+  const alternarSinFiltrar = nombre => setSinFiltrar(prev =>
+    prev.includes(nombre) ? prev.filter(n => n !== nombre) : [...prev, nombre]
+  );
 
   // El recorte de cada archivo, por separado
   const recortes = React.useMemo(
-    () => archivos.map(a => ({ ...a, pasan: filtrarPorNivel3(a.filas, nivel3Filtro) })),
-    [archivos, nivel3Filtro]
+    () => archivos.map(a => {
+      const entero = sinFiltrar.includes(a.nombre);
+      return { ...a, entero, pasan: entero ? a.filas : filtrarPorNivel3(a.filas, nivel3Filtro) };
+    }),
+    [archivos, nivel3Filtro, sinFiltrar]
   );
 
   const totalPasan = recortes.reduce((n, r) => n + r.pasan.length, 0);
@@ -170,13 +199,14 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
     if (totalPasan === 0) {
       toast?.error(
         nivel3Filtro
-          ? `Ninguno de los archivos tiene productos de "${nivel3Filtro}".`
+          ? `El filtro "${nivel3Filtro}" no encontró nada. Usá "Analizar este archivo entero" o poné "Todos los productos".`
           : "Los archivos no tienen filas para analizar."
       );
       return;
     }
-    // Unión de los sobrevivientes: acá recién se convierten en uno solo
-    handleProductsConfirm(recortes.flatMap(r => r.pasan));
+    // Unión de los sobrevivientes: acá recién se convierten en uno solo.
+    // Ya vienen recortados archivo por archivo, no se vuelve a filtrar.
+    handleProductsConfirm(recortes.flatMap(r => r.pasan), true);
   };
 
   return (
@@ -371,8 +401,20 @@ export default function UploadView({ onProductsLoaded, hasActiveSession, correct
                 </div>
                 <div style={{ fontSize: 11, color: r.pasan.length === 0 ? C.warning : C.textDim }}>
                   {r.pasan.length} de {r.filas.length} filas
-                  {r.pasan.length === 0 && nivel3Filtro ? " — no aporta nada con este filtro" : ""}
+                  {r.entero ? " — entra entero, sin filtrar" : ""}
+                  {r.pasan.length === 0 && nivel3Filtro ? " — el filtro no encontró nada acá" : ""}
                 </div>
+                {/* El filtro puede equivocarse: nombres raros, rubro vacío, otra
+                    forma de escribirlo. Si el usuario sabe que ahí hay algo, lo
+                    mete igual en vez de quedarse trabado. */}
+                {nivel3Filtro && (
+                  <button
+                    onClick={() => alternarSinFiltrar(r.nombre)}
+                    style={{ marginTop: 4, padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: r.entero ? C.accentBg : "transparent", color: r.entero ? C.accent : C.textMuted, cursor: "pointer", fontSize: 11, fontWeight: 600 }}
+                  >
+                    {r.entero ? "✓ Ignorando el filtro" : "Analizar este archivo entero"}
+                  </button>
+                )}
                 {r.faltantes.length > 0 && (
                   <div style={{ fontSize: 11, color: C.warning }}>
                     ⚠️ Sin columna {r.faltantes.join(" ni ")} — esas filas van a clasificar mal
