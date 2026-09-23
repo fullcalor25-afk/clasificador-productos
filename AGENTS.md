@@ -540,9 +540,18 @@ guardado en distintos días, a medida que cada placa está físicamente a mano.
 
 2. El modelo de visión transcribe; el usuario **confirma o corrige** el código.
    Nada cuenta como dato final sin ese paso. Por defecto lee Gemini; el switch
-   "Modo rápido (Groq)" cambia de proveedor y se recuerda en `localStorage`.
-   Si un proveedor falla, la respuesta trae `provider_fallo` y la UI ofrece el
-   otro — Groq ya deprecó sus modelos de visión dos veces en un año.
+   "Modo rápido (Groq)" elige cuál se intenta primero y se recuerda en
+   `localStorage`.
+
+> **El OCR cambia de proveedor solo.** Si el elegido no puede, `product-images`
+> prueba el otro en la misma request, sin que el usuario toque nada. Gemini
+> devuelve `503 "high demand"` de a ratos (pasó el 2026-09-23) y Groq ya
+> deprecó sus modelos de visión dos veces en un año: que uno esté caído no
+> puede impedir leer una placa que ya está fotografiada. Si contestó el
+> respaldo, la respuesta trae `provider_respaldo` y la UI lo avisa, para que se
+> entienda por qué la foto dice "leído por Groq" cuando el switch decía Gemini.
+> Si fallan los dos, el error los nombra a los dos — decir solo uno haría que
+> la UI ofrezca cambiar al otro, que tampoco anda.
 3. Al enriquecer para exportar, los `codigo_confirmado` viajan como
    `codigos_oem` y salen como tags `oem:`.
 4. En Exportar → "Exportar imágenes del lote (.zip)": el CSV va por un lado

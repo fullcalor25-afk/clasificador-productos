@@ -27,6 +27,9 @@ const GEMINI_MAX_BYTES = 14 * 1024 * 1024
 
 const BUCKET = 'producto-fotos'
 
+// Para que el mensaje de error diga "Gemini" y no "gemini"
+const NOMBRE_PROVIDER = { gemini: 'Gemini', groq: 'Groq' }
+
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-groq-key')
@@ -261,24 +264,42 @@ export default async function handler(req, res) {
       return res.status(e.status || 500).json({ error: 'No se pudo guardar la foto: ' + e.message })
     }
 
-    // ── 2. Recién ahora, el OCR ───────────────────────────────────────────────
-    let ocr = null
-    let ocrError = null
-    try {
-      if (provider === 'groq') {
+    // ── 2. Recién ahora, el OCR — con respaldo automático ─────────────────────
+    // Si el proveedor elegido no puede, se prueba el otro solo, sin que el
+    // usuario tenga que tocar el switch. Gemini devuelve 503 "high demand" de
+    // a ratos y Groq ya deprecó sus modelos de visión dos veces en un año: que
+    // uno esté caído no puede impedir leer una placa que ya está fotografiada.
+    async function intentarCon(p) {
+      if (p === 'groq') {
         const userKey = req.headers['x-groq-key']
         const apiKey = (typeof userKey === 'string' && userKey.trim()) ? userKey.trim() : process.env.GROQ_API_KEY
         if (!apiKey) throw new Error('GROQ_API_KEY no configurada')
-        ocr = await ocrConGroq(url, apiKey)
-      } else {
-        // La key de Gemini es solo server-side: no se acepta override por header
-        // ni se guarda en el browser, a diferencia de la de Groq.
-        const apiKey = process.env.GEMINI_API_KEY
-        if (!apiKey) throw new Error('GEMINI_API_KEY no configurada')
-        ocr = await ocrConGemini(url, apiKey)
+        return ocrConGroq(url, apiKey)
       }
-    } catch (e) {
-      ocrError = e
+      // La key de Gemini es solo server-side: no se acepta override por header
+      // ni se guarda en el browser, a diferencia de la de Groq.
+      const apiKey = process.env.GEMINI_API_KEY
+      if (!apiKey) throw new Error('GEMINI_API_KEY no configurada')
+      return ocrConGemini(url, apiKey)
+    }
+
+    let ocr = null
+    let ocrError = null
+    let providerUsado = provider
+    const fallos = []
+
+    for (const p of [provider, otro]) {
+      try {
+        ocr = await intentarCon(p)
+        providerUsado = p
+        ocrError = null
+        if (p !== provider) console.log('[product-images] ' + provider + ' fallo, leyo ' + p)
+        break
+      } catch (e) {
+        console.error('[product-images ocr ' + p + ']', e.message)
+        fallos.push(NOMBRE_PROVIDER[p] + ': ' + e.message)
+        ocrError = e
+      }
     }
 
     // ── 3. OCR fallido: 200, no 502 ───────────────────────────────────────────
@@ -288,18 +309,16 @@ export default async function handler(req, res) {
     // ocr_confirmado false y codigo_confirmado null: el estado "pendiente OCR"
     // se deduce de ahí, sin columnas nuevas.
     if (ocrError) {
-      console.error('[product-images ocr]', ocrError.message)
       return res.status(200).json({
         id: row.id,
         row,
         ocr: null,
         ocr_fallo: true,
         advertencia: 'Foto guardada pero el OCR falló — revisala a mano',
-        error: 'Error de IA: ' + ocrError.message,
-        // Se informa QUÉ proveedor falló para que la UI pueda ofrecer el otro.
-        // Con dos deprecaciones de visión en Groq en un año, no es hipotético.
+        // Fallaron los dos, así que se nombran los dos: si solo se dijera uno,
+        // la UI ofrecería cambiar al otro, que tampoco anda.
+        error: 'Fallaron los dos lectores — ' + fallos.join(' | '),
         provider_fallo: provider,
-        otro_proveedor: otro,
       })
     }
 
@@ -308,11 +327,20 @@ export default async function handler(req, res) {
       const rows = await supabaseQuery(TABLE + '?id=eq.' + encodeURIComponent(row.id), {
         method: 'PATCH',
         headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ ocr_texto: JSON.stringify(ocr), provider_usado: provider }),
+        body: JSON.stringify({ ocr_texto: JSON.stringify(ocr), provider_usado: providerUsado }),
       }, SUPABASE_URL, SUPABASE_KEY)
 
       const actualizada = (Array.isArray(rows) ? rows[0] : rows) || row
-      return res.status(200).json({ id: actualizada.id, ocr_texto: actualizada.ocr_texto, ocr, row: actualizada })
+      return res.status(200).json({
+        id: actualizada.id,
+        ocr_texto: actualizada.ocr_texto,
+        ocr,
+        row: actualizada,
+        provider_usado: providerUsado,
+        // Se avisa solo si tuvo que cambiar de lector, para que se entienda por
+        // qué la foto dice "leído por Groq" cuando el switch decía Gemini.
+        ...(providerUsado !== provider ? { provider_respaldo: providerUsado, provider_fallo: provider } : {}),
+      })
     } catch (e) {
       // El OCR salió bien pero no se pudo guardar. La foto sigue estando, así
       // que tampoco se rompe todo: se devuelve la lectura para no perderla.

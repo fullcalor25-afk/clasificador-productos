@@ -135,7 +135,15 @@ export default function ProductPhotosModal({ isOpen, producto, fotosIniciales = 
         toast?.error("Foto guardada, pero el OCR falló.");
       } else {
         setEstado("idle");
-        toast?.success("Foto transcripta. Revisá el código antes de confirmar.");
+        if (data.provider_respaldo) {
+          // El server cambió de lector solo. Se avisa para que se entienda por
+          // qué la foto dice "leído por Groq" si el switch decía Gemini.
+          toast?.info?.(
+            `${NOMBRE_PROVIDER[data.provider_fallo] || data.provider_fallo} no estaba disponible — leyó ${NOMBRE_PROVIDER[data.provider_respaldo] || data.provider_respaldo}. Revisá el código.`
+          );
+        } else {
+          toast?.success("Foto transcripta. Revisá el código antes de confirmar.");
+        }
       }
     } catch (err) {
       setErrorMsg(err.message);
