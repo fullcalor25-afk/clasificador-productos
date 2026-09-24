@@ -94,13 +94,26 @@ export default function HistoryDetailView({
 
   const totalPages = Math.ceil(filteredProducts.length / pageSize);
 
+  // Cuántos productos del análisis tienen datos de enriquecimiento. Decide el
+  // estado del botón de Tienda Nube, pero no si se muestra.
+  const enriquecidos = useMemo(() => products.filter(p => p._enriched).length, [products]);
+
   const handleExportCSV = () => {
     const hasEnriched = products.some(p => p._enriched);
     exportHistoryCSV(products, hasEnriched);
   };
 
+  // Exporta lo que está a la vista, no todo el análisis: si hay un filtro o una
+  // búsqueda activa, se baja ese recorte. Es lo que uno espera cuando filtró
+  // a propósito antes de apretar descargar.
   const handleExportTiendaNube = () => {
-    exportHistoryTiendaNubeCSV(products);
+    const n = exportHistoryTiendaNubeCSV(filteredProducts);
+    if (!n) return; // la función ya avisó por qué no salió nada
+    const recortado = filteredProducts.length !== products.length;
+    toast?.success?.(
+      `✅ CSV de Tienda Nube: ${n} ${n === 1 ? "producto" : "productos"}` +
+      (recortado ? ` (del filtro actual, no los ${products.length} del análisis)` : "")
+    );
   };
 
   return (
@@ -164,23 +177,30 @@ export default function HistoryDetailView({
             📥 Descargar CSV
           </button>
 
-          {products.some(p => p._enriched) && (
-            <button
-              onClick={handleExportTiendaNube}
-              style={{
-                padding: "8px 16px",
-                borderRadius: 8,
-                background: "rgba(16, 185, 129, 0.12)",
-                border: "1px solid #10b981",
-                color: "#10b981",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              🛒 CSV Tienda Nube
-            </button>
-          )}
+          {/* Siempre visible. Antes se escondía si ningún producto estaba
+              enriquecido, y un botón que no está no explica nada: parecía que
+              la función no existía. Ahora se ve siempre y, si no hay nada para
+              exportar, exportHistoryTiendaNubeCSV dice por qué y qué hacer. */}
+          <button
+            onClick={handleExportTiendaNube}
+            title={
+              enriquecidos === 0
+                ? "Este análisis todavía no tiene productos enriquecidos con IA"
+                : `${enriquecidos} de ${products.length} productos están enriquecidos`
+            }
+            style={{
+              padding: "8px 16px",
+              borderRadius: 8,
+              background: enriquecidos === 0 ? "transparent" : "rgba(16, 185, 129, 0.12)",
+              border: `1px solid ${enriquecidos === 0 ? C.border : "#10b981"}`,
+              color: enriquecidos === 0 ? C.textDim : "#10b981",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            📥 Descargar para Tienda Nube
+          </button>
         </div>
       </div>
 

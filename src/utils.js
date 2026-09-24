@@ -480,11 +480,23 @@ export function exportTiendaNubeCSV(productos, tnCategories = []) {
   URL.revokeObjectURL(a.href);
 }
 
+/**
+ * Devuelve cuántos productos entraron al CSV, o 0 si no salió nada — así quien
+ * llama puede avisar el resultado sin volver a filtrar por su cuenta.
+ */
 export function exportHistoryTiendaNubeCSV(histProductos) {
-  const enriched = histProductos.filter(p => p._enriched);
+  const enriched = (histProductos || []).filter(p => p._enriched);
   if (enriched.length === 0) {
-    alert("Este análisis no tiene productos enriquecidos con IA. Volvé a cargar el análisis en el flujo principal y ejecutá el enriquecimiento antes de guardar.");
-    return;
+    alert(
+      "No hay productos enriquecidos para exportar.\n\n" +
+      "El CSV de Tienda Nube necesita los datos que genera la IA (nombre limpio, " +
+      "categoría, descripción, dimensiones).\n\n" +
+      "Qué hacer: 'Retomar en sesión activa' → Exportar → Tienda Nube → Enriquecer, " +
+      "y volvé a guardar el análisis.\n\n" +
+      "Si filtraste la lista, probá sacando el filtro: puede que los enriquecidos " +
+      "queden fuera del recorte."
+    );
+    return 0;
   }
   const mapped = enriched.map(p => ({
     CODIGO:        p.codigo    || "",
@@ -498,6 +510,7 @@ export function exportHistoryTiendaNubeCSV(histProductos) {
     _enriched:     p._enriched,
   }));
   exportTiendaNubeCSV(mapped);
+  return mapped.length;
 }
 
 /**
