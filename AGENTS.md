@@ -22,7 +22,7 @@ y con ficha completa lista para importar.
 | Base de datos | Supabase (PostgreSQL via REST API) |
 | IA clasificación | `gpt-oss-120b` alternando por lote entre Groq y Cerebras (mismo modelo, cuotas separadas), con `gpt-oss-20b` y Gemini de respaldo |
 | IA enriquecimiento | Groq API (mismo modelo), con el mismo respaldo de Gemini |
-| IA visión / OCR de fotos | Gemini (`gemini-3.8-flash`) por defecto, Groq (`qwen/qwen3.6-27b`) como modo rápido |
+| IA visión / OCR de fotos | Gemini (`gemini-3.8-flash`) por defecto, Groq (`GROQ_VISION_MODEL`, default `qwen/qwen3.8-27b`) como modo rápido y como respaldo automático |
 | Deploy | Vercel (auto-deploy desde GitHub) |
 | Repo | GitHub (fullcalor25-afk/clasificador-productos) |
 
@@ -33,6 +33,7 @@ y con ficha completa lista para importar.
 ```
 GROQ_API_KEY              API key de Groq
 CEREBRAS_API_KEY          API key de Cerebras (OPCIONAL — ver abajo)
+GROQ_VISION_MODEL         ID del modelo de visión de Groq (OPCIONAL — ver abajo)
 GEMINI_API_KEY            API key de Gemini (OCR de fotos de placas)
 SUPABASE_URL              URL del proyecto Supabase
 SUPABASE_KEY              anon public key de Supabase
@@ -552,6 +553,16 @@ guardado en distintos días, a medida que cada placa está físicamente a mano.
 > entienda por qué la foto dice "leído por Groq" cuando el switch decía Gemini.
 > Si fallan los dos, el error los nombra a los dos — decir solo uno haría que
 > la UI ofrezca cambiar al otro, que tampoco anda.
+>
+> **El modelo de visión de Groq se configura por variable, no por código.**
+> Groq lleva TRES deprecaciones de visión en un año: llama-4-scout y maverick
+> en 2026, y `qwen/qwen3.6-27b` el 2026-09-23 — este último devolvía `404 "The
+> model does not exist"` en producción mientras Gemini estaba en 503, así que
+> el OCR fallaba entero. El reemplazo es `qwen/qwen3.8-27b`. Como esto va a
+> volver a pasar, el ID sale de **`GROQ_VISION_MODEL`**: la próxima vez se
+> cambia la variable en Vercel y se redeploya, sin tocar código. El valor del
+> código es solo el default vigente, y un 404 de Groq devuelve un mensaje que
+> dice exactamente eso en vez de parecer un problema de la foto.
 3. Al enriquecer para exportar, los `codigo_confirmado` viajan como
    `codigos_oem` y salen como tags `oem:`.
 4. En Exportar → "Exportar imágenes del lote (.zip)": el CSV va por un lado

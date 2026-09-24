@@ -13,11 +13,15 @@ import { logRequest, supabaseQuery, GEMINI_MODEL } from './_helpers.js'
 // GEMINI_MODEL vive en _helpers.js: es el mismo modelo en tres lugares y no
 // queremos que se desincronicen.
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
-// Groq: los modelos de visión llama-4 fueron deprecados en 2026; el sustituto
-// multimodal es qwen3.6-27b (Preview). Verificar con GET /openai/v1/models.
-// Ya van dos deprecaciones de visión en Groq en poco tiempo: asumir que esta
-// pieza se puede caer de nuevo, y por eso los errores dicen de qué proveedor son.
-const GROQ_MODEL = 'qwen/qwen3.6-27b'
+// Groq y sus deprecaciones de visión: llama-4-scout y maverick en 2026, y
+// qwen3.6-27b el 2026-09-23 (devolvía 404 "model does not exist" en producción,
+// con el reemplazo qwen3.8-27b). Van TRES en un año.
+//
+// Por eso el ID sale de una variable de entorno: la próxima vez que Groq
+// deprecie el modelo, se cambia GROQ_VISION_MODEL en Vercel y listo — no hace
+// falta tocar código, abrir una sesión ni esperar un deploy. El valor de abajo
+// es solo el default vigente.
+const GROQ_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b'
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 
 // Gemini acepta ~20MB de request inline y base64 infla ~33%, así que el archivo
@@ -163,6 +167,14 @@ async function ocrConGroq(url, apiKey) {
     const txt = await r.text().catch(() => '')
     console.error('[product-images groq]', r.status, txt.substring(0, 300))
     if (r.status === 401) throw Object.assign(new Error('Groq API key invalida'), { status: 401 })
+    // Un 404 acá es siempre lo mismo: Groq deprecó el modelo otra vez. El
+    // mensaje dice qué hacer, porque si no parece un problema de la foto.
+    if (r.status === 404) {
+      throw new Error(
+        'Groq ya no sirve el modelo "' + GROQ_MODEL + '" (deprecado). ' +
+        'Poné el nuevo ID en la variable GROQ_VISION_MODEL en Vercel.'
+      )
+    }
     throw new Error('Error del modelo de vision de Groq (' + r.status + ')')
   }
 
