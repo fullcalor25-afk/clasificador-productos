@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from "react";
 import { C, CLS } from "../constants";
-import { getProductPrice, slugify, getCategoriaTN, buildCategoriaTN, exportTiendaNubeCSV, exportImagenesZip, fetchWithTimeout, apiFetch } from "../utils";
+import { getProductPrice, slugify, getCategoriaTN, buildCategoriaTN, exportTiendaNubeCSV, exportImagenesZip, fetchWithTimeout, apiFetch, normNivel } from "../utils";
 import useIsNarrow from "../hooks/useIsNarrow";
 
 const GROQ_KEY_STORAGE = "clasificador_groq_key";
@@ -185,14 +185,19 @@ export default function ExportView({
               const cat = r.categoria_tiendanube.trim();
               const parts = cat.split(" > ").map(p => p.trim());
               if (parts.length !== 4) return;
-              if (parts[0] !== "Repuestos y Accesorios") return;
-              const nivel2Existe = tnCategories.some(c => c.nivel2 === parts[1]);
+              // Comparaciones ciegas a acentos: si la IA manda "Calefaccion"
+              // sin tilde, tiene que reconocer la "Calefacción" que ya existe
+              // en vez de creerla nueva y abrir una rama paralela.
+              if (normNivel(parts[0]) !== normNivel("Repuestos y Accesorios")) return;
+              const nivel2Existe = tnCategories.some(c => normNivel(c.nivel2) === normNivel(parts[1]));
               if (!nivel2Existe) return;
-              const nivel3Existe = tnCategories.some(c => c.nivel2 === parts[1] && c.nivel3 === parts[2]);
+              const nivel3Existe = tnCategories.some(c =>
+                normNivel(c.nivel2) === normNivel(parts[1]) && normNivel(c.nivel3) === normNivel(parts[2]));
               if (!nivel3Existe) return;
               const nivel4Existe = tnCategories.some(c =>
-                c.nivel2 === parts[1] && c.nivel3 === parts[2] &&
-                c.nivel4?.toLowerCase() === parts[3].toLowerCase()
+                normNivel(c.nivel2) === normNivel(parts[1]) &&
+                normNivel(c.nivel3) === normNivel(parts[2]) &&
+                normNivel(c.nivel4) === normNivel(parts[3])
               );
               if (nivel4Existe) return;
               if (parts[3].split(" ").length > 4) return;

@@ -1,4 +1,4 @@
-import { supabaseQuery, llamarGemini } from './_helpers.js'
+import { supabaseQuery, llamarGemini, normNivel, normPath } from './_helpers.js'
 
 // Groq primero (más rápido y barato); Gemini como respaldo para que un límite
 // de cuota no frene el enriquecimiento. El post-procesado de abajo —marca,
@@ -525,15 +525,17 @@ export default async function handler(req, res) {
 
       // ── Validar y corregir categorías devueltas por Groq ─────────────────────
       if (tnCats.length > 0) {
-        const validPaths = new Set(
-          tnCats.map(c =>
-            [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(' > ').toLowerCase().trim()
-          )
-        )
+        // Los paths se indexan normalizados (sin acentos) para que la categoría
+        // que devuelve la IA matchee aunque le falten las tildes. El path que
+        // se guarda sigue siendo el de la tabla, con sus acentos correctos.
+        const porPathNorm = new Map()
+        tnCats.forEach(c => {
+          const completo = [c.nivel1, c.nivel2, c.nivel3, c.nivel4].filter(Boolean).join(' > ')
+          if (completo) porPathNorm.set(normPath(completo), completo)
+        })
+        const validPaths = new Set(porPathNorm.keys())
         const validPaths3 = new Set(
-          tnCats.map(c =>
-            [c.nivel1, c.nivel2, c.nivel3].filter(Boolean).join(' > ').toLowerCase().trim()
-          )
+          tnCats.map(c => normPath([c.nivel1, c.nivel2, c.nivel3].filter(Boolean).join(' > ')))
         )
 
         results = results.map(r => {
@@ -543,7 +545,7 @@ export default async function handler(req, res) {
           // Si el path no existe en tiendanube_categories avisamos fuerte, porque
           // significa que el dato de `marcas.categoria_forzada` quedó desalineado.
           if (r.categoria_forzada_por) {
-            if (!validPaths.has(r.categoria_tiendanube.toLowerCase().trim())) {
+            if (!validPaths.has(normPath(r.categoria_tiendanube))) {
               console.error(`[enrich] categoria_forzada de "${r.categoria_forzada_por}" NO existe en tiendanube_categories: "${r.categoria_tiendanube}" — revisar la tabla marcas`)
             }
             return r
@@ -556,18 +558,18 @@ export default async function handler(req, res) {
               r = { ...r, es_categoria_nueva: false, keywords_sugeridas: null }
             } else {
               const nivel3Existe = tnCats.some(c =>
-                c.nivel1?.trim() === parts[0] &&
-                c.nivel2?.trim() === parts[1] &&
-                c.nivel3?.trim() === parts[2]
+                normNivel(c.nivel1) === normNivel(parts[0]) &&
+                normNivel(c.nivel2) === normNivel(parts[1]) &&
+                normNivel(c.nivel3) === normNivel(parts[2])
               )
               if (!nivel3Existe) {
                 r = { ...r, es_categoria_nueva: false, keywords_sugeridas: null }
               } else {
                 const nivel4Existe = tnCats.some(c =>
-                  c.nivel1?.trim() === parts[0] &&
-                  c.nivel2?.trim() === parts[1] &&
-                  c.nivel3?.trim() === parts[2] &&
-                  c.nivel4?.trim().toLowerCase() === parts[3].toLowerCase()
+                  normNivel(c.nivel1) === normNivel(parts[0]) &&
+                  normNivel(c.nivel2) === normNivel(parts[1]) &&
+                  normNivel(c.nivel3) === normNivel(parts[2]) &&
+                  normNivel(c.nivel4) === normNivel(parts[3])
                 )
                 if (nivel4Existe) {
                   r = { ...r, es_categoria_nueva: false, keywords_sugeridas: null }
@@ -576,20 +578,32 @@ export default async function handler(req, res) {
             }
           }
 
-          const catLower = r.categoria_tiendanube.toLowerCase().trim()
+          const catNorm = normPath(r.categoria_tiendanube)
 
-          if (validPaths.has(catLower)) return r
+          // Coincide salvo acentos: se acepta, pero se guarda la escritura
+          // canonica de la tabla, no la que mando la IA. Asi no conviven
+          // "Calefaccion" y "Calefaccion" con tilde como si fueran distintas.
+          if (validPaths.has(catNorm)) {
+            const canonico = porPathNorm.get(catNorm)
+            return canonico && canonico !== r.categoria_tiendanube
+              ? { ...r, categoria_tiendanube: canonico }
+              : r
+          }
 
-          if (validPaths3.has(catLower)) {
+          if (validPaths3.has(catNorm)) {
             return { ...r, es_categoria_incompleta: true }
           }
 
-          const nombreProducto = (r.nombre_limpio || r.codigo || '').toLowerCase()
+          // Las keywords de la tabla llevan acentos ("válvula llenado",
+          // "manómetro calderas") y los nombres de producto casi nunca
+          // ("VALVULA DE SEGURIDAD"). Comparados tal cual no matcheaban nunca:
+          // van normalizados los dos lados.
+          const nombreProducto = normNivel(r.nombre_limpio || r.codigo || '')
           let bestMatch = null
           let bestScore = 0
           tnCats.forEach(cat => {
             if (!cat.keywords) return
-            const kws = cat.keywords.split(',').map(k => k.trim().toLowerCase())
+            const kws = cat.keywords.split(',').map(k => normNivel(k))
             const score = kws.filter(kw => kw && nombreProducto.includes(kw)).length
             if (score > bestScore) { bestScore = score; bestMatch = cat }
           })

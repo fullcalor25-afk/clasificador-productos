@@ -46,20 +46,8 @@ export function buildCategoriaTN(product, tnCategories = []) {
 
   // Prioridad 2: matching por keywords del nombre del producto
   if (tnCategories.length > 0 && product.PRODUCTO) {
-    const nombre = (product.PRODUCTO || "").toLowerCase();
-    let bestMatch = null;
-    let bestScore = 0;
-    tnCategories.forEach(cat => {
-      if (!cat.keywords) return;
-      const kws = cat.keywords.split(",").map(k => k.trim().toLowerCase());
-      const score = kws.filter(kw => kw && nombre.includes(kw)).length;
-      if (score > bestScore) { bestScore = score; bestMatch = cat; }
-    });
-    if (bestMatch && bestScore > 0) {
-      return [
-        bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3, bestMatch.nivel4,
-      ].filter(Boolean).join(" > ");
-    }
+    const porKeywords = matchPorKeywords(product.PRODUCTO, tnCategories);
+    if (porKeywords) return porKeywords;
   }
 
   // Prioridad 3: categoría interna del clasificador
@@ -81,19 +69,8 @@ export function getCategoriaTN(product, tnCategories = []) {
     return product._enriched.categoria_tiendanube;
   }
   if (tnCategories.length > 0 && product.PRODUCTO) {
-    const nombre = (product.PRODUCTO || "").toLowerCase();
-    let bestMatch = null;
-    let bestScore = 0;
-    tnCategories.forEach(cat => {
-      if (!cat.keywords) return;
-      const kws = cat.keywords.split(",").map(k => k.trim().toLowerCase());
-      const score = kws.filter(kw => kw && nombre.includes(kw)).length;
-      if (score > bestScore) { bestScore = score; bestMatch = cat; }
-    });
-    if (bestMatch && bestScore > 0) {
-      return [bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3, bestMatch.nivel4]
-        .filter(Boolean).join(" > ");
-    }
+    const porKeywords = matchPorKeywords(product.PRODUCTO, tnCategories);
+    if (porKeywords) return porKeywords;
   }
   if (product._categoria) {
     const parts = ["Repuestos y Accesorios", product._categoria, product._subcategoria]
@@ -613,6 +590,40 @@ export function normalizarTexto(txt) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "");
+}
+
+// ── Comparación de categorías, ciega a acentos ───────────────────────────────
+// "Calefaccion" y "Calefacción" son la MISMA categoría, y lo mismo pasa con
+// Hidráulicos, Electrónica, Válvulas, Manómetros. La IA a veces escribe sin
+// tildes y un INSERT a mano también; comparadas tal cual se crea una rama
+// paralela en el árbol. Espeja normNivel/normPath de api/_helpers.js.
+export function normNivel(txt) {
+  return normalizarTexto(txt).replace(/\s+/g, " ").trim();
+}
+
+export function normPath(path) {
+  return (path || "").split(">").map(normNivel).filter(Boolean).join(" > ");
+}
+
+/**
+ * Mejor categoría según las keywords de la tabla. Normaliza los DOS lados: las
+ * keywords llevan acentos ("válvula llenado") y los nombres de producto casi
+ * nunca ("VALVULA DE SEGURIDAD"), así que sin esto no matcheaban.
+ */
+export function matchPorKeywords(nombreProducto, tnCategories = []) {
+  const nombre = normNivel(nombreProducto);
+  if (!nombre) return null;
+  let bestMatch = null;
+  let bestScore = 0;
+  tnCategories.forEach(cat => {
+    if (!cat.keywords) return;
+    const kws = cat.keywords.split(",").map(k => normNivel(k));
+    const score = kws.filter(kw => kw && nombre.includes(kw)).length;
+    if (score > bestScore) { bestScore = score; bestMatch = cat; }
+  });
+  if (!bestMatch) return null;
+  return [bestMatch.nivel1, bestMatch.nivel2, bestMatch.nivel3, bestMatch.nivel4]
+    .filter(Boolean).join(" > ");
 }
 
 // Palabras que no aportan al match y darían falsos positivos por sí solas

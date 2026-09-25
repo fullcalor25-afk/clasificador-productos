@@ -1,6 +1,25 @@
 // Shared helpers for Vercel serverless functions
 // Files prefixed with _ are excluded from Vercel routing (not exposed as endpoints)
 
+// ── Comparación de categorías, ciega a acentos ───────────────────────────────
+// "Calefaccion" y "Calefacción" son la MISMA categoría. Lo mismo "Hidraulicos"
+// y "Hidráulicos", "Electronica" y "Electrónica". La IA escribe sin acentos a
+// veces, y un INSERT a mano también; si se comparan tal cual, se crea una rama
+// paralela en el árbol y los productos se van a una categoría fantasma.
+// Nunca comparar niveles ni paths con === pelado: usar estas dos.
+export function normNivel(txt) {
+  return (txt || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Normaliza un path completo "A > B > C > D", nivel por nivel. */
+export function normPath(path) {
+  return (path || '').split('>').map(normNivel).filter(Boolean).join(' > ')
+}
+
 export function logRequest(label, data) {
   if (process.env.NODE_ENV !== 'production' || process.env.DEBUG_API) {
     console.log(`[${label}]`, JSON.stringify(data, null, 2).substring(0, 500))

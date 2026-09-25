@@ -212,6 +212,37 @@ que no falte ningún nivel3 nuevo).
 Las keywords de cada categoría son usadas por la IA para asignar
 productos automáticamente. Son la fuente de verdad para la IA.
 
+#### Los acentos no distinguen categorías
+
+`Calefaccion` y `Calefacción` son la MISMA categoría, y lo mismo vale para
+Hidráulicos, Electrónica, Válvulas y Manómetros. **Nunca comparar niveles ni
+paths con `===` pelado.** Usar `normNivel()` / `normPath()`, que están en
+`api/_helpers.js` para las funciones y en `src/utils.js` para el frontend
+(mismo comportamiento, uno por lado).
+
+Por qué importa: la IA a veces devuelve el path sin tildes, y un `INSERT` a
+mano también — pasó el 2026-09-25 con un script que insertaba `'Calefaccion'`
+cuando las 26 filas de la tabla usan `'Calefacción'`. Comparados tal cual, se
+habría creado una **rama nivel2 paralela** y los productos se habrían ido a un
+árbol fantasma en Tienda Nube.
+
+Dónde está aplicado:
+- `api/enrich.js` — validación de paths, chequeos de nivel1..4 y matching por
+  keywords. Cuando el path coincide salvo acentos, **se guarda la escritura
+  canónica de la tabla**, no la que mandó la IA.
+- `src/utils.js` — `matchPorKeywords()`, usado por `buildCategoriaTN()` y
+  `getCategoriaTN()` (antes cada una tenía su propia copia del matching).
+- `src/views/ExportView.jsx` — la doble validación antes de crear un nivel4.
+
+Las keywords llevan acentos (`válvula llenado`, `manómetro calderas`) y los
+nombres de producto casi nunca (`VALVULA DE SEGURIDAD`): sin normalizar los
+dos lados, ese matching no encontraba nada.
+
+La tabla además tiene un índice **UNIQUE sobre `(nivel1, nivel2, nivel3,
+nivel4)`** desde 2026-09-25. Antes solo existía `PRIMARY KEY (id)`, así que un
+`ON CONFLICT DO NOTHING` nunca se disparaba y correr dos veces el mismo script
+de alta duplicaba las filas en silencio.
+
 ### analyses — Historial de análisis guardados
 ```sql
 id, nombre, total, repuestos, accesorios, completos,
