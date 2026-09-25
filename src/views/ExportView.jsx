@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef } from "react";
 import { C, CLS } from "../constants";
 import { getProductPrice, slugify, getCategoriaTN, buildCategoriaTN, exportTiendaNubeCSV, exportImagenesZip, fetchWithTimeout, apiFetch, normNivel } from "../utils";
 import useIsNarrow from "../hooks/useIsNarrow";
+import NormalizacionNombres from "../components/NormalizacionNombres";
 
 const GROQ_KEY_STORAGE = "clasificador_groq_key";
 
@@ -256,7 +257,11 @@ export default function ExportView({
           ? `⚠️ Enriquecimiento finalizado con ${failedBatches} de ${totalBatches} lote(s) fallido(s).`
           : `✅ Enriquecimiento finalizado con éxito.`) + avisoGemini
       );
-      setStep(3);
+      // NO se salta solo al paso 3. El resumen del paso 2 es donde se revisa
+      // lo que acaba de pasar: los nivel4 incompletos y las sugerencias de
+      // nombre. Saltando automaticamente, esa pantalla no se veia nunca y el
+      // boton "Siguiente → Ver Catálogo CSV" que ya estaba ahi era inalcanzable.
+      // Ahora se pasa al paso 3 apretando ese boton.
     }
   };
 
@@ -697,6 +702,14 @@ export default function ExportView({
                     Siguiente → Ver Catálogo CSV
                   </button>
                 </div>
+                {/* Normalizacion de nombres: despues de enriquecer, antes de
+                    pasar al CSV. Solo sugiere donde hay patron aprendido. */}
+                <NormalizacionNombres
+                  productos={selectedProducts}
+                  onAplicar={handleIndividualSave}
+                  toast={toast}
+                />
+
                 {sinNivel4.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: `${C.warning}12`, border: `1px solid ${C.warning}40`, borderRadius: 10 }}>
                     <span style={{ fontSize: 12, color: C.warning, fontWeight: 600 }}>

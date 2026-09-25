@@ -243,6 +243,26 @@ nivel4)`** desde 2026-09-25. Antes solo existía `PRIMARY KEY (id)`, así que un
 `ON CONFLICT DO NOTHING` nunca se disparaba y correr dos veces el mismo script
 de alta duplicaba las filas en silencio.
 
+### naming_patterns — Patrones de nombre aprendidos POR CATEGORÍA
+```sql
+id, categoria_tiendanube, categoria_norm (UNIQUE), patron_ejemplo,
+estructura, muestras_json (jsonb), confianza_promedio,
+veces_aplicado, updated_at
+```
+Ver `supabase_naming_patterns.sql`. **No reemplaza a `corrections`, la
+complementa:** `corrections` aprende por CODIGO (un producto concreto, prioridad
+máxima); `naming_patterns` aprende por CATEGORÍA, para poder sugerirle un nombre
+a un producto que nunca se vio pero cae en una categoría ya trabajada.
+
+`muestras_json` guarda los pares `{codigo, nombre_original, nombre_normalizado}`
+que el usuario confirmó — una muestra por código, así corregir dos veces el
+mismo producto no lo hace pesar doble al inferir el patrón.
+
+La clave de búsqueda es **`categoria_norm`** (el path sin acentos, vía
+`normPath()`), y la UNIQUE va sobre esa columna. Si fuera sobre
+`categoria_tiendanube`, "Calefaccion" y "Calefacción" abrirían dos filas para
+la misma categoría y cada una aprendería la mitad de los ejemplos.
+
 ### analyses — Historial de análisis guardados
 ```sql
 id, nombre, total, repuestos, accesorios, completos,
@@ -362,6 +382,39 @@ la respuesta de la IA, `api/enrich.js` aplica dos pasos determinísticos:
 normaliza `marca` al slug canónico (`marca_slug`) y pisa la categoría si
 alguna marca mencionada tiene `categoria_forzada`.
 
+### Normalización de nombres (api/naming-patterns.js)
+
+Al terminar el enriquecimiento, el Paso 2 ofrece "✨ Normalización de Nombres".
+Compara cada producto con el patrón aprendido de SU categoría y sugiere un
+nombre coherente con cómo el usuario ya nombró esa familia.
+
+> **REGLA DE ORO — no "mejorar" esto después.** Si la categoría tiene **menos de
+> 3 ejemplos confirmados**, o si la IA devuelve **confianza menor a 80**, no se
+> sugiere nada: `nombre_sugerido: null`. Es deliberado y conservador. Un nombre
+> malo aplicado en masa llega al CSV, de ahí a Tienda Nube, y después hay que
+> deshacerlo producto por producto. El objetivo no es sugerir mucho, es no
+> equivocarse. Los dos umbrales viven en `MIN_EJEMPLOS` y `MIN_CONFIANZA`.
+
+Tampoco se sugiere un nombre idéntico al actual: no es una mejora, solo una fila
+más para revisar.
+
+Flujo de aprendizaje: **✓ Aplicar** dispara `PATCH`, que guarda en
+`corrections.nombre_limpio` (fuente de verdad por código) **y** suma la muestra
+al patrón de la categoría. **✗ Ignorar no manda nada** — un rechazo no debe
+contaminar el aprendizaje.
+
+Dos fallas que a propósito NO son fallas: si la IA se cae, el lote sobrevive y
+esos productos vuelven sin sugerencia; si falla la actualización del patrón en
+el `PATCH`, la respuesta sigue siendo `success`, porque el nombre ya quedó en
+`corrections` y eso es lo que importa — solo se pierde el aprendizaje, y la
+respuesta lo avisa.
+
+> **El Paso 2 ya no salta solo al Paso 3.** `runEnrich()` terminaba con
+> `setStep(3)`, así que la pantalla de resumen del Paso 2 no se veía nunca y el
+> botón "Siguiente → Ver Catálogo CSV" que vivía ahí era inalcanzable. Ahí es
+> donde se revisan los nivel4 incompletos y las sugerencias de nombre, así que
+> ahora se pasa al Paso 3 apretando ese botón.
+
 ### Categorías TN — REGLAS ESTRICTAS para la IA:
 La IA DEBE elegir de la lista exacta cargada desde tiendanube_categories.
 - Siempre devolver el path completo: "Nivel1 > Nivel2 > Nivel3 > Nivel4"
@@ -462,6 +515,7 @@ responsabilidad de quien exporta revisar antes de importar en Tienda Nube
 | api/rules.js | GET, POST, DELETE | Reglas dinámicas de clasificación |
 | api/published.js | GET, POST | Registro de lo ya publicado en TN (`check` / `mark`) |
 | api/product-images.js | GET, POST, PATCH, DELETE | Fotos de producto + OCR con modelo de visión (Gemini / Groq) |
+| api/naming-patterns.js | GET, POST, PATCH | Sugerencias de nombre aprendidas por categoría |
 
 ### Patrón estándar de cada función:
 ```js
